@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="description"
+        content="EgoForce: Forearm-Guided Camera-Space 3D Hand Pose from a Monocular Egocentric Camera.">
+  <meta name="keywords" content="EgoForce, 3D Hand Pose, Camera-Space, Monocular, Egocentric Camera, Computer Vision, Deep Learning">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EgoForce: Forearm-Guided Camera-Space 3D Hand Pose from  a Monocular Egocentric Camera</title>
+
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro"
+        rel="stylesheet">
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+          onload="renderMathInElement(document.body);"></script>
+
+
+  <link rel="stylesheet" href="./static/css/bulma.min.css">
+  <link rel="stylesheet" href="./static/css/bulma-carousel.min.css">
+  <link rel="stylesheet" href="./static/css/bulma-slider.min.css">
+  <link rel="stylesheet" href="./static/css/fontawesome.all.min.css">
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.4.0/css/font-awesome.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.8.0/codemirror.min.css">
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
+  <link rel="stylesheet" href="./static/css/index.css">
+  <link rel="icon" href="./static/images/ego_glasses.png">
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.8.0/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/clipboard.js/1.5.3/clipboard.min.js"></script>
+  <script defer src="./static/js/fontawesome.all.min.js"></script>
+  <script src="./static/js/bulma-carousel.min.js"></script>
+  <script src="./static/js/bulma-slider.min.js"></script>
+  <script src="./static/js/index.js"></script>
+  <script src="./static/js/video_comparison.js"></script>
+  <script src="./static/js/app.js"></script>
+</head>
+<body>
+
+
+
+
+
+<section class="hero">
+  <div class="hero-body">
+    <!-- <div class="container is-max-desktop"> -->    
+    <div class="container is-fluid" style="max-width: 90%; margin: 0 auto;">
+
+      <div class="columns is-centered">
+        <div class="column has-text-centered">
+          <!-- <h1 class="title is-1 publication-title neon-text" style="font-size:4em;">
+            <img src="static/images/ego_glasses.png" alt="icon" style="height: 2em; vertical-align: middle; margin-right: 0.3em;">
+            <span class="small-caps">EgoForce</span>
+          </h1> -->
+
+          <h1 class="title is-1 publication-title" style="font-size:4em;">
+            <img src="static/images/ego_glasses.png"
+                alt="icon"
+                style="height: 1.5em; vertical-align: -0.6em; margin-right: 0.2em;">
+            <span class="brand-black small-caps">Ego</span><span class="brand-360 small-caps">Force</span>
+            <img src="static/images/force_hand.png"
+                alt="icon"
+                style="height: 1.5em; vertical-align: -0.2em; margin-left: 0.1em;">
+          </h1>
+
+          <h2 class="subtitle is-3 publication-subtitle" style="font-size: 3em;">
+            <strong>Forearm-Guided Camera-Space 3D Hand Pose from  a Monocular Egocentric Camera</strong></h2>
+          <!-- <h3 class="subtitle is-3 publication-subtitle" style="font-size: 1.5em;">
+            <strong>CVPR 2026</strong></h3> -->
+          <div class="is-size-3 publication-authors">
+            <span class="author-block">
+              <a href="https://chris10m.github.io/">Christen Millerdurai</a><sup>1</sup>,
+            </span>
+            <span class="author-block">
+              <a href="https://shaoxiang777.github.io/">Shaoxiang Wang</a><sup>1,2</sup>,
+            </span>
+            <span class="author-block"> 
+              <a href="https://scholar.google.com/citations?user=3ZKuh9EAAAAJ">Yaxu Xie</a><sup>1</sup>,
+            </span>  
+            <span class="author-block">
+              <a href="https://people.mpi-inf.mpg.de/~golyanik/">Vladislav Golyanik</a><sup>3</sup>,
+            </span>
+            <span class="author-block">
+              <a href="https://www.dfki.de/en/web/about-us/employee/person/dist01">Didier Stricker</a><sup>1,2</sup>
+            </span>
+            <span class="author-block">
+              <a href="https://www.dfki.de/en/web/about-us/employee/person/alpa02">Alain Pagani</a><sup>1</sup>
+            </span>
+          </div>
+
+          <div class="is-size-3 publication-authors">
+            <span class="author-block"><sup>1</sup>German Research Center for Artificial Intelligence(DFKI),</span>
+            <span class="author-block"><sup>2</sup>RTPU,</span>
+            <span class="author-block"><sup>3</sup>Max Planck Institute for Informatics</span>
+          </div>
+
+          <div class="is-size-3 publication-authors" bis_skin_checked="1">
+            <b><a href="https://www.siggraph.org/">ACM SIGGRAPH Conference Proceedings, 2026</a></b>
+          </div>
+
+          <div class="column has-text-centered">
+            <div class="publication-links">
+              <span class="link-block">
+                <a href=""
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="ai ai-arxiv"></i>
+                  </span>
+                  <span>arXiv</span>
+                </a>
+              </span>
+              <!-- Code Link. -->
+              <span class="link-block">
+                 <a href="https://github.com/dfki-av/EgoForce/tree/main"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="fab fa-github"></i>
+                  </span>
+                  <span>Code</span>
+                  </a>
+              </span>
+
+              <span class="link-block">
+                <a href="https://huggingface.co/datasets/chris10/EgoForce"
+                   class="external-link button is-normal is-rounded is-dark">
+                   <span class="icon">
+                    <img src="https://huggingface.co/front/assets/huggingface_logo-noborder.svg" width="20" height="20" alt="HF">
+                  </span>
+                  <span>Data</span>
+                  </a>
+              </span>
+              <!-- Results Link. -->
+              <span class="link-block">
+                <a href="https://huggingface.co/spaces/chris10/EgoForce"
+                   class="external-link button is-normal is-rounded is-dark">
+                   <span class="icon">
+                    <img src="static/images/demo.png" width="80" height="80" alt="Demo">
+                  </span>
+                  <span>Demo</span>
+                  </a>
+              </span>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<section class="hero teaser">
+  <div class="container is-max-desktop">
+    <div class="hero-body">
+      <div class="pipeline-figure" style="display: flex; justify-content: center;">
+        <video autoplay muted loop playsinline controls style="width: 150%; max-width: 1000px; border-radius: 10px;">
+          <source src="./videos/teaser.mp4" type="video/mp4">
+          Your browser does not support the video tag.
+        </video>
+      </div>
+      <h2 class="subtitle is-3 has-text-centered">
+        <span class="subtitle is-3"><strong><span class="small-caps">EgoForce</span></strong></span> estimates the camera-space hand–forearm mesh from a monocular front-facing head-mounted camera, making it well suited to smart glasses.
+      </h2>
+    </div>
+  </div>
+</section>
+
+
+<section class="hero is-light is-small has-text-centered">
+  <div class="hero-body">
+    <!-- <div class="container"> -->
+    <div class="container is-fluid">
+      <h2 class="title is-3">Demo Results of <span class="dnerf"><span class="small-caps">EgoForce</span></span> with <span class="dnerf">Project Aria</span> Glasses </h2>
+      <div id="results-carousel" class="carousel results-carousel"
+            style="max-width:1100px; margin:0 auto;">     
+        
+        <div class="item item-truck">
+          <video poster="" id="truck" autoplay controls muted loop playsinline >
+            <source src="./videos/demo_results/metric_scale_localization.mp4"
+                    type="video/mp4">
+          </video>
+          <p class="subtitle is-3 has-text-centered">Metric Scale Localization</p>
+        </div>
+
+        <div class="item item-doppelherz">
+          <video poster="" id="doppelherz" autoplay controls muted loop playsinline >
+            <source src="./videos/demo_results/hand_object_interaction.mp4"
+                    type="video/mp4">
+          </video>
+          <p class="subtitle is-3 has-text-centered">Hand Object Interaction</p>
+        </div>
+
+        <div class="item item-cube">
+          <video poster="" id="cube" autoplay controls muted loop playsinline >
+            <source src="./videos/demo_results/hand_articulation.mp4"
+                    type="video/mp4">
+          </video>
+          <p class="subtitle is-3 has-text-centered">Hand Articulation</p>
+        </div>
+
+        <div class="item item-fruits">
+          <video poster="" id="fruits" autoplay controls muted loop playsinline >
+            <source src="./videos/demo_results/hand_hand_interaction.mp4"
+                    type="video/mp4">
+          </video>
+          <p class="subtitle is-3 has-text-centered">Hand Hand Interaction</p>
+        </div>
+
+
+      </div>
+    </div>
+  </div>
+</section>
+
+
+
+
+
+
+<section class="section">
+  <div class="container is-max-desktop">
+
+    <!-- Video. -->
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-full-width">
+        <h2 class="title is-2">Video</h2>
+        <div class="video-container" style="position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; max-width: 100%; border-radius: 12px;">
+          <iframe style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: 12px;" src="https://www.youtube.com/embed/" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+        </div>
+      </div>
+    </div>
+
+    <!-- Abstract. -->
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <hr>
+
+        <h2 class="title is-2">Abstract</h2>
+        <div class="content has-text-justified">
+          
+          <p>
+              Reconstructing the absolute 3D pose and shape of the hands from the user’s
+              viewpoint using a single head-mounted camera is crucial for practical egocen-
+              tric interaction in AR/VR, telepresence, and hand-centric manipulation tasks,
+              where sensing must remain compact and unobtrusive. While monocular RGB
+              methods have made progress, they remain constrained by depth–scale am-
+              biguity and struggle to generalize across the diverse optical configurations
+              of head-mounted devices. As a result, models typically require extensive
+              training on device-specific datasets, which are costly and laborious to ac-
+              quire. This paper addresses these challenges by introducing <span class="small-caps">EgoForce</span> , a
+              monocular 3D hand reconstruction framework that recovers robust, absolute
+              3D hand pose and its position from the user’s (camera-space) viewpoint.
+              <span class="small-caps">EgoForce</span>  operates across fisheye, perspective, and distorted wide-FOV
+              camera models using a single unified network. Our approach combines a
+              differentiable forearm representation that stabilizes hand pose, a unified
+              arm–hand transformer that predicts both hand and forearm geometry from
+              a single egocentric view, mitigating depth–scale ambiguity, and a ray space
+              closed-form solver that enables absolute 3D pose recovery across diverse
+              head-mounted camera models. Experiments on three egocentric benchmarks
+              show that <span class="small-caps">EgoForce</span>  achieves state-of-the-art 3D accuracy, reducing camera-
+              space MPJPE by up to 28% on the HOT3D dataset compared to prior methods
+              and maintaining consistent performance across camera configurations.
+        </p>
+        </div>
+      </div>
+    </div>
+    <!--/ Abstract. -->
+
+
+    <!-- Pipeline Fig. -->
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-full-width">
+        <h2 class="title is-2">Pipeline</h2>
+        <div class="pipeline-figure">
+          <img src="./static/images/pipeline.png" alt="Pipeline" class="pipeline-image-wide"/>
+        </div>
+        <div class="content has-text-justified">
+          <p>
+            <strong> <span class="small-caps">EgoForce</span> </strong>  processes a monocular egocentric RGB frame by extracting hand and forearm crops, tokenizing them, and conditioning the features on crop intrinsics (CIT). 
+            A transformer jointly infers hand–arm features to predict 2D keypoints (with confidences) and root-relative 3D hand and arm poses, which are lifted to camera-space meshes via the ray space solver.
+            When the forearm is out of view, arm tokens are replaced with missing-arm tokens, and a hand-conditioned variational prior infers a plausible arm representation. 
+            We apply this workflow independently to the left and right hand-forearm crops.
+          </p>
+        </div>
+      </div>
+    </div>
+  
+
+  </div>
+</section>
+
+
+
+
+
+
+<section class="section">
+  <div class="container is-max-desktop">
+   
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-full-width">
+        <h2 class="title is-2">Visualization Results </h2>
+      </div>
+    </div>
+
+        <p class="text-justify" style="text-align: left;">
+        <div class="content has-text-justified">
+            We compare our rendering results with other approaches. Our method is capable of handling not only <strong>single-object (2. and 3. rows)</strong> cases but also complex <strong>multi-object (1. row)</strong> scenes with challenging occlusions.
+            In addition, we primarily benchmark against other mainstream GS-based methods, and report FID values in the middle of the video to enable quantitative comparison.
+        </div>
+
+        
+          <div id="single-image-compare">
+            <div class="row m-2">
+              <div class="col-md-10">
+                  <ul class="nav nav-pills justify-content-center" role="navigation">
+                      <li class="nav-item">
+                          <a class="nav-link disabled" 
+                              style="width: 270px; pointer-events:none; cursor:default;">
+                              <strong>Comparison method:</strong>
+                          </a>
+                      </li>
+                      <li class="nav-item method-pill" data-value="HandDGP"><a class="nav-link active">HandDGP </a></li>
+                      <li class="nav-item method-pill" data-value="HandOccNet"><a class="nav-link">HandOccNet </a></li>
+                      <li class="nav-item method-pill" data-value="MobRecon"><a class="nav-link">MobRecon </a></li>
+                     
+                  </ul>
+              </div>
+
+              <div class="btn-group btn-group-sm col-md-2 d-flex align-items-center" style="padding-top: 5px" id="mode-buttons">
+                  <!-- <button class="btn btn-primary mode-pill float-right active" data-value="rgb">
+                      RGB
+                  </button>
+                  <button class="btn btn-primary mode-pill float-right" data-value="depth">
+                      Depth
+                  </button> -->
+              </div>
+          </div>
+
+
+            <div class="text-center">
+              <div style="position:relative; display:inline-block; width:120%; max-width:900px;">
+                <!-- Two offscreen videos as sources (not display:none so browsers still decode them) -->
+                <video id="single-comp-left" loop playsinline autoplay muted style="position:absolute; width:1px; height:1px; opacity:0; pointer-events:none;"></video>
+                <video id="single-comp-right" loop playsinline autoplay muted style="position:absolute; width:1px; height:1px; opacity:0; pointer-events:none;"></video>
+                <!-- Canvas for the slider composite -->
+                <canvas id="single-comp-canvas" style="width:100%; border-radius:8px; cursor:col-resize;"></canvas>
+                <!-- Labels -->
+                <span id="single-comp-label-left"
+                      style="position:absolute; top: 90%; left:2px; transform:translateY(-500%); font-weight:bold;
+                             color:white; background:rgba(0,0,0,0.55); padding:7px 8px 2px 8px; border-radius:6px; font-size:18px; line-height:1;"></span>
+                <span id="single-comp-label-right"
+                      style="position:absolute; top: 90%; right:2px; transform:translateY(-500%); font-weight:bold;
+                             color:white; background:rgba(0,0,0,0.55); padding:7px 8px 2px 8px; border-radius:6px; font-size:18px;">Ours</span>
+              </div>
+            </div>
+
+
+            <div class="text-center">
+              <div class="scene-pills" id="any-pills" role="group" aria-relevant="additions text"
+                   style="display:flex !important; flex-direction:row; justify-content:center; align-items:flex-start; flex-wrap:wrap; margin:0 auto;">
+
+                  <!-- HOT3D -->
+                  <div style="position:relative; display:inline-block; margin:0 40px;">
+                    <button class="scene-pill-btn scene-pill" data-value="HOT3D_0_SIDE"
+                            style="position:absolute; left:4px; top:50%; transform:translateY(-50%); z-index:2;">Side</button>
+                    <img class="thumbnail-img" src="thumbnails/HOT3D.png" width="200"
+                         style="display:block; border-radius:6px; height:140px; object-fit:cover; cursor:pointer;"
+                         onclick="var v=activeScene==='HOT3D_0_EGO'?'HOT3D_0_SIDE':'HOT3D_0_EGO'; document.querySelector('.scene-pill[data-value='+v+']').click();">
+                    <button class="scene-pill-btn scene-pill" data-value="HOT3D_0_EGO"
+                            style="position:absolute; right:4px; top:50%; transform:translateY(-50%); z-index:2;">Ego</button>
+                    <span style="display:block; text-align:center; font-weight:bold; font-size:16px; margin-top:4px;">HOT3D</span>
+                  </div>
+
+                  <!-- ARCTIC -->
+                  <div style="position:relative; display:inline-block; margin:0 40px;">
+                    <button class="scene-pill-btn scene-pill" data-value="ARCTIC_0_SIDE"
+                            style="position:absolute; left:4px; top:50%; transform:translateY(-50%); z-index:2;">Side</button>
+                    <img class="thumbnail-img" src="thumbnails/ARCTIC.png" width="200"
+                         style="display:block; border-radius:6px; height:140px; object-fit:cover; cursor:pointer;"
+                         onclick="var v=activeScene==='ARCTIC_0_EGO'?'ARCTIC_0_SIDE':'ARCTIC_0_EGO'; document.querySelector('.scene-pill[data-value='+v+']').click();">
+                    <button class="scene-pill-btn scene-pill" data-value="ARCTIC_0_EGO"
+                            style="position:absolute; right:4px; top:50%; transform:translateY(-50%); z-index:2;">Ego</button>
+                    <span style="display:block; text-align:center; font-weight:bold; font-size:16px; margin-top:4px;">ARCTIC</span>
+                  </div>
+
+                  <!-- H2O -->
+                  <div style="position:relative; display:inline-block; margin:0 40px;">
+                    <button class="scene-pill-btn scene-pill" data-value="H2O_0_SIDE"
+                            style="position:absolute; left:4px; top:50%; transform:translateY(-50%); z-index:2;">Side</button>
+                    <img class="thumbnail-img" src="thumbnails/H2O.png" width="200"
+                         style="display:block; border-radius:6px; height:140px; object-fit:cover; cursor:pointer;"
+                         onclick="var v=activeScene==='H2O_0_EGO'?'H2O_0_SIDE':'H2O_0_EGO'; document.querySelector('.scene-pill[data-value='+v+']').click();">
+                    <button class="scene-pill-btn scene-pill" data-value="H2O_0_EGO"
+                            style="position:absolute; right:4px; top:50%; transform:translateY(-50%); z-index:2;">Ego</button>
+                    <span style="display:block; text-align:center; font-weight:bold; font-size:16px; margin-top:4px;">H2O</span>
+                  </div>
+
+              </div>
+            </div>
+      
+          </div>
+        
+
+        <script>
+            playbackSpeeds = {
+                "HandDGP": [1.0, 1.0],
+                "HandOccNet": [1.0, 1.0],
+                "MobRecon": [1.0, 1.0],
+               
+            };
+
+            aspectRatios = {
+                "HandDGP": 1.5,
+                "HandOccNet": 1.5,
+                "MobRecon": 1.5,
+            }
+
+            labels = {
+                "HandDGP": "HandDGP",
+                "HandOccNet": "HandOccNet",
+                "MobRecon": "MobRecon",
+            }
+
+            compareDiv = document.querySelector("#single-image-compare")
+            activeMethod = "HandDGP"
+            activeScene = "HOT3D_0_SIDE"
+            activeMode = "rgb"
+
+            // Select all elements with the class 'method-pill'
+            const methodPills_base = compareDiv.querySelectorAll('.method-pill');
+            const modePillParent_base = compareDiv.querySelector('#mode-buttons')
+            const modePills_base = modePillParent_base.querySelectorAll('.mode-pill')
+
+            for (modePill of modePills_base) {
+                modePill.addEventListener('click', function () {
+                    // activeMode = this.getAttribute('data-value');
+                    activeMode = 'rgb'
+                    updateDisplay();
+                });
+            }
+
+
+            const leftVideo_base = compareDiv.querySelector('#single-comp-left')
+            const rightVideo_base = compareDiv.querySelector('#single-comp-right')
+            const sliderCanvas = compareDiv.querySelector('#single-comp-canvas')
+            const leftLabel_base = compareDiv.querySelector("#single-comp-label-left")
+            const scenePillContainers_base = compareDiv.querySelectorAll(`.scene-pills`);
+
+            // Frame-sync: keep right (ours) in lockstep with left (comparison)
+            leftVideo_base.addEventListener('play', function() { rightVideo_base.play(); });
+            leftVideo_base.addEventListener('pause', function() { rightVideo_base.pause(); });
+            leftVideo_base.addEventListener('seeked', function() { rightVideo_base.currentTime = leftVideo_base.currentTime; });
+            leftVideo_base.addEventListener('timeupdate', function() {
+                if (Math.abs(leftVideo_base.currentTime - rightVideo_base.currentTime) > 0.15) {
+                    rightVideo_base.currentTime = leftVideo_base.currentTime;
+                }
+            });
+
+            // --- Canvas slider logic ---
+            var sliderPos = 0.5;
+            var sliderCtx = sliderCanvas.getContext('2d');
+            var canvasReady = false;
+
+            function initCanvas() {
+                if (leftVideo_base.videoWidth && rightVideo_base.videoWidth) {
+                    sliderCanvas.width = leftVideo_base.videoWidth;
+                    sliderCanvas.height = leftVideo_base.videoHeight;
+                    canvasReady = true;
+                }
+            }
+            leftVideo_base.addEventListener('loadeddata', initCanvas);
+            rightVideo_base.addEventListener('loadeddata', initCanvas);
+
+            sliderCanvas.addEventListener('mousemove', function(e) {
+                var bcr = sliderCanvas.getBoundingClientRect();
+                sliderPos = ((e.pageX - bcr.x) / bcr.width);
+            });
+            sliderCanvas.addEventListener('touchstart', function(e) {
+                var bcr = sliderCanvas.getBoundingClientRect();
+                sliderPos = ((e.touches[0].pageX - bcr.x) / bcr.width);
+            });
+            sliderCanvas.addEventListener('touchmove', function(e) {
+                var bcr = sliderCanvas.getBoundingClientRect();
+                sliderPos = ((e.touches[0].pageX - bcr.x) / bcr.width);
+            });
+
+            Number.prototype.clamp = Number.prototype.clamp || function(min, max) {
+                return Math.min(Math.max(this, min), max);
+            };
+
+            function drawSliderLoop() {
+                if (canvasReady && leftVideo_base.readyState >= 2 && rightVideo_base.readyState >= 2) {
+                    var W = sliderCanvas.width;
+                    var H = sliderCanvas.height;
+                    var splitX = (W * sliderPos).clamp(0, W);
+
+                    // Draw left video (comparison) on the left portion
+                    sliderCtx.drawImage(leftVideo_base, 0, 0, splitX, H, 0, 0, splitX, H);
+                    // Draw right video (ours) on the right portion
+                    var rightW = W - splitX;
+                    if (rightW > 0) {
+                        sliderCtx.drawImage(rightVideo_base, splitX, 0, rightW, H, splitX, 0, rightW, H);
+                    }
+
+                    // Draw divider line
+                    sliderCtx.beginPath();
+                    sliderCtx.moveTo(splitX, 0);
+                    sliderCtx.lineTo(splitX, H);
+                    sliderCtx.strokeStyle = '#444';
+                    sliderCtx.lineWidth = 4;
+                    sliderCtx.stroke();
+
+                    // Draw drag arrow indicator
+                    var arrowLen = 0.09 * H;
+                    var headW = 0.025 * H;
+                    var headL = 0.04 * H;
+                    var posY = H / 10;
+                    var lineW = 0.007 * H;
+
+                    sliderCtx.beginPath();
+                    sliderCtx.arc(splitX, posY, arrowLen * 0.7, 0, Math.PI * 2, false);
+                    sliderCtx.fillStyle = '#FFD79340';
+                    sliderCtx.fill();
+
+                    sliderCtx.beginPath();
+                    sliderCtx.moveTo(splitX, posY - lineW / 2);
+                    sliderCtx.lineTo(splitX + arrowLen / 2 - headL / 2, posY - lineW / 2);
+                    sliderCtx.lineTo(splitX + arrowLen / 2 - headL / 2, posY - headW / 2);
+                    sliderCtx.lineTo(splitX + arrowLen / 2, posY);
+                    sliderCtx.lineTo(splitX + arrowLen / 2 - headL / 2, posY + headW / 2);
+                    sliderCtx.lineTo(splitX + arrowLen / 2 - headL / 2, posY + lineW / 2);
+                    sliderCtx.lineTo(splitX - arrowLen / 2 + headL / 2, posY + lineW / 2);
+                    sliderCtx.lineTo(splitX - arrowLen / 2 + headL / 2, posY + headW / 2);
+                    sliderCtx.lineTo(splitX - arrowLen / 2, posY);
+                    sliderCtx.lineTo(splitX - arrowLen / 2 + headL / 2, posY - headW / 2);
+                    sliderCtx.lineTo(splitX - arrowLen / 2 + headL / 2, posY - lineW / 2);
+                    sliderCtx.closePath();
+                    sliderCtx.fillStyle = '#444';
+                    sliderCtx.fill();
+                }
+                requestAnimationFrame(drawSliderLoop);
+            }
+            requestAnimationFrame(drawSliderLoop);
+
+            for (methodPill of methodPills_base) {
+                const method = methodPill.getAttribute('data-value');
+                // Select all scene pill containers
+                const scenePillContainer = compareDiv.querySelector(`#any-pills`);
+                const scenePills = scenePillContainer.querySelectorAll(".scene-pill")
+
+                for (scenePill of scenePills) {
+                    scenePill.addEventListener('click', function () {
+                        activeScene = this.getAttribute("data-value")
+                        console.log(activeScene);
+                        updateDisplay();
+                    });
+                }
+
+                // Attach a click event listener to each pill
+                methodPill.addEventListener('click', function () {
+                    activeMethod = method
+                    activeMode = "rgb"
+                    // const scenePillContainer = compareDiv.querySelector(`#any-pills`);
+                    // const scenePills = scenePillContainer.querySelectorAll(".scene-pill")
+                    // activeScene = scenePills[0].getAttribute("data-value")
+                    updateDisplay();
+                });
+            }
+
+            function updateDisplay() {
+                if (activeMethod == 'image_dream') {
+                    modePillParent_base.style.display = 'none';
+                } else {
+                    modePillParent_base.style.display = '';
+                }
+                // Update active pill
+                methodPills_base.forEach(p => p.classList.remove('active'));
+                methodPills_base.forEach(methodPill => {
+                    if (methodPill.getAttribute('data-value') == activeMethod) {
+                        methodPill.querySelector('a').classList.add('active');
+                    } else {
+                        methodPill.querySelector('a').classList.remove('active')
+                    }
+                });
+
+                // Update mode pill
+                for (modePill of modePills_base) {
+                    if (modePill.getAttribute('data-value') === activeMode) {
+                        modePill.classList.add('active');
+                    } else {
+                        modePill.classList.remove('active');
+                    }
+                }
+
+                // Show/Hide scene pill containers based on the selected method
+                scenePillContainers_base.forEach(container => {
+                    if (container.id === `any-pills`) {
+                        container.style.display = ''; // Or 'block' depending on your layout
+                    } else {
+                        container.style.display = 'none';
+                    }
+                });
+
+                const scenePillContainer = compareDiv.querySelector(`#any-pills`);
+                const scenePills = scenePillContainer.querySelectorAll(".scene-pill")
+
+                for (scenePill of scenePills) {
+                    if (scenePill.getAttribute('data-value') == activeScene) {
+                        scenePill.classList.add('active');
+                    } else {
+                        scenePill.classList.remove('active')
+                    }
+                }
+
+                var zdist = "";
+                if (activeMode == "depth") {
+                    zdist = "_zdist";
+                }
+
+                // Update video display. This still has a small flash, could double buffer the video like before, but
+                // as long as the layout stays consistent it really isn't bad.
+      
+                canvasReady = false;
+                leftVideo_base.src = `videos/comparison_slider/${activeMethod}/${activeScene}.mp4`;
+                rightVideo_base.src = `videos/comparison_slider/ours/${activeScene}.mp4`;
+
+                var [lr, rr] = playbackSpeeds[activeMethod];
+                leftVideo_base.playbackRate = lr;
+                rightVideo_base.playbackRate = rr;
+
+                leftLabel_base.innerHTML = labels[activeMethod];
+            }
+            // Update initial display
+            updateDisplay()
+        </script>
+            
+
+      </div>   
+    </div>        
+      
+  </div>
+</section>
+
+
+
+<section class="section">
+  <div class="container is-max-desktop">
+
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-full-width">
+        <h2 class="title is-3">Camera-Space Trajectory Comparison</h2>
+      </div>
+    </div>
+
+    <div id="trajectory-compare">
+      <div class="row m-2">
+        <div class="col-md-12">
+          <ul class="nav nav-pills justify-content-center" role="navigation">
+            <li class="nav-item">
+              <a class="nav-link disabled"
+                 style="width: 150px; pointer-events:none; cursor:default;">
+                <strong>Dataset:</strong>
+              </a>
+            </li>
+            <li class="nav-item traj-dataset-pill" data-value="HOT3D"><a class="nav-link">HOT3D</a></li>
+            <li class="nav-item traj-dataset-pill" data-value="ARCTIC"><a class="nav-link">ARCTIC</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="text-center">
+        <div style="position:relative; display:inline-block; width:120%; max-width:900px;">
+          <video id="traj-comp-left" loop playsinline autoplay muted style="position:absolute; width:1px; height:1px; opacity:0; pointer-events:none;"></video>
+          <video id="traj-comp-right" loop playsinline autoplay muted style="position:absolute; width:1px; height:1px; opacity:0; pointer-events:none;"></video>
+          <canvas id="traj-comp-canvas" style="width:100%; border-radius:8px; cursor:col-resize;"></canvas>
+          <span id="traj-comp-label-left"
+                style="position:absolute; top:90%; left:2px; transform:translateY(-644%); font-weight:bold;
+                       color:white; background:rgba(0,0,0,0.55); padding:7px 8px 2px 8px; border-radius:6px; font-size:18px; line-height:1;">HandDGP</span>
+          <span id="traj-comp-label-right"
+                style="position:absolute; top:90%; right:2px; transform:translateY(-500%); font-weight:bold;
+                       color:white; background:rgba(0,0,0,0.55); padding:7px 8px 2px 8px; border-radius:6px; font-size:18px;">Ours</span>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    (function() {
+      var trajDiv = document.querySelector('#trajectory-compare');
+      var activeDataset = 'HOT3D';
+
+      var datasetPills = trajDiv.querySelectorAll('.traj-dataset-pill');
+      var leftVideo = trajDiv.querySelector('#traj-comp-left');
+      var rightVideo = trajDiv.querySelector('#traj-comp-right');
+      var canvas = trajDiv.querySelector('#traj-comp-canvas');
+      var ctx = canvas.getContext('2d');
+      var sliderPos = 0.5;
+      var canvasReady = false;
+
+      // Frame sync
+      leftVideo.addEventListener('play', function() { rightVideo.play(); });
+      leftVideo.addEventListener('pause', function() { rightVideo.pause(); });
+      leftVideo.addEventListener('seeked', function() { rightVideo.currentTime = leftVideo.currentTime; });
+      leftVideo.addEventListener('timeupdate', function() {
+        if (Math.abs(leftVideo.currentTime - rightVideo.currentTime) > 0.15) {
+          rightVideo.currentTime = leftVideo.currentTime;
+        }
+      });
+
+      function initCanvas() {
+        if (leftVideo.videoWidth && rightVideo.videoWidth) {
+          canvas.width = leftVideo.videoWidth;
+          canvas.height = leftVideo.videoHeight;
+          canvasReady = true;
+        }
+      }
+      leftVideo.addEventListener('loadeddata', initCanvas);
+      rightVideo.addEventListener('loadeddata', initCanvas);
+
+      canvas.addEventListener('mousemove', function(e) {
+        var bcr = canvas.getBoundingClientRect();
+        sliderPos = (e.pageX - bcr.x) / bcr.width;
+      });
+      canvas.addEventListener('touchstart', function(e) {
+        var bcr = canvas.getBoundingClientRect();
+        sliderPos = (e.touches[0].pageX - bcr.x) / bcr.width;
+      });
+      canvas.addEventListener('touchmove', function(e) {
+        var bcr = canvas.getBoundingClientRect();
+        sliderPos = (e.touches[0].pageX - bcr.x) / bcr.width;
+      });
+
+      function clamp(v, min, max) { return Math.min(Math.max(v, min), max); }
+
+      function drawLoop() {
+        if (canvasReady && leftVideo.readyState >= 2 && rightVideo.readyState >= 2) {
+          var W = canvas.width, H = canvas.height;
+          var splitX = clamp(W * sliderPos, 0, W);
+          ctx.drawImage(leftVideo, 0, 0, splitX, H, 0, 0, splitX, H);
+          var rW = W - splitX;
+          if (rW > 0) ctx.drawImage(rightVideo, splitX, 0, rW, H, splitX, 0, rW, H);
+          ctx.beginPath(); ctx.moveTo(splitX, 0); ctx.lineTo(splitX, H);
+          ctx.strokeStyle = '#444'; ctx.lineWidth = 4; ctx.stroke();
+          // Arrow indicator
+          var arrowLen = 0.09 * H, headW = 0.025 * H, headL = 0.04 * H, posY = H / 10, lineW = 0.007 * H;
+          ctx.beginPath(); ctx.arc(splitX, posY, arrowLen * 0.7, 0, Math.PI * 2, false);
+          ctx.fillStyle = '#FFD79340'; ctx.fill();
+          ctx.beginPath();
+          ctx.moveTo(splitX, posY - lineW / 2);
+          ctx.lineTo(splitX + arrowLen / 2 - headL / 2, posY - lineW / 2);
+          ctx.lineTo(splitX + arrowLen / 2 - headL / 2, posY - headW / 2);
+          ctx.lineTo(splitX + arrowLen / 2, posY);
+          ctx.lineTo(splitX + arrowLen / 2 - headL / 2, posY + headW / 2);
+          ctx.lineTo(splitX + arrowLen / 2 - headL / 2, posY + lineW / 2);
+          ctx.lineTo(splitX - arrowLen / 2 + headL / 2, posY + lineW / 2);
+          ctx.lineTo(splitX - arrowLen / 2 + headL / 2, posY + headW / 2);
+          ctx.lineTo(splitX - arrowLen / 2, posY);
+          ctx.lineTo(splitX - arrowLen / 2 + headL / 2, posY - headW / 2);
+          ctx.lineTo(splitX - arrowLen / 2 + headL / 2, posY - lineW / 2);
+          ctx.closePath(); ctx.fillStyle = '#444'; ctx.fill();
+        }
+        requestAnimationFrame(drawLoop);
+      }
+      requestAnimationFrame(drawLoop);
+
+      function updateTrajectory() {
+        datasetPills.forEach(function(pill) {
+          if (pill.getAttribute('data-value') === activeDataset) {
+            pill.classList.add('active');
+            pill.querySelector('a').classList.add('active');
+          } else {
+            pill.classList.remove('active');
+            pill.querySelector('a').classList.remove('active');
+          }
+        });
+        canvasReady = false;
+        leftVideo.src = 'videos/Trajectories/HandDGP/' + activeDataset + '.mp4';
+        rightVideo.src = 'videos/Trajectories/ours/' + activeDataset + '.mp4';
+      }
+
+      datasetPills.forEach(function(pill) {
+        pill.addEventListener('click', function() {
+          activeDataset = this.getAttribute('data-value');
+          updateTrajectory();
+        });
+      });
+
+      updateTrajectory();
+    })();
+    </script>
+
+  </div>
+</section>
+
+
+<section class="section">
+  <div class="container is-max-desktop">
+
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-full-width">
+        <h2 class="title is-3">Ablation Study</h2>
+      </div>
+    </div>
+
+    <div id="ablation-compare">
+      <div class="row m-2">
+        <div class="col-md-12">
+          <ul class="nav nav-pills justify-content-center" role="navigation">
+            <li class="nav-item">
+              <a class="nav-link disabled"
+                 style="width: 150px; pointer-events:none; cursor:default;">
+                <strong>Component:</strong>
+              </a>
+            </li>
+            <li class="nav-item ablation-pill" data-value="No Arm Input" data-video="ARCTIC_EGO"><a class="nav-link">No Arm Input</a></li>
+            <li class="nav-item ablation-pill" data-value="No Arm Prior" data-video="ARCTIC_SIDE"><a class="nav-link">No Arm Prior</a></li>
+            <li class="nav-item ablation-pill" data-value="No CIT" data-video="HOT3D_EGO"><a class="nav-link">No CIT</a></li>
+            <li class="nav-item ablation-pill" data-value="No Kalman" data-video="HOT3D_SIDE"><a class="nav-link">No Kalman</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="text-center">
+        <div style="position:relative; display:inline-block; width:120%; max-width:900px;">
+          <video id="ablation-comp-left" loop playsinline autoplay muted style="position:absolute; width:1px; height:1px; opacity:0; pointer-events:none;"></video>
+          <video id="ablation-comp-right" loop playsinline autoplay muted style="position:absolute; width:1px; height:1px; opacity:0; pointer-events:none;"></video>
+          <canvas id="ablation-comp-canvas" style="width:100%; border-radius:8px; cursor:col-resize;"></canvas>
+          <span id="ablation-comp-label-left"
+                style="position:absolute; top:75%; left:2px; transform:translateY(-500%); font-weight:bold;
+                       color:white; background:rgba(0,0,0,0.55); padding:7px 8px 2px 8px; border-radius:6px; font-size:18px; line-height:1;">OFF</span>
+          <span id="ablation-comp-label-right"
+                style="position:absolute; top:80%; right:2px; transform:translateY(-500%); font-weight:bold;
+                       color:white; background:rgba(0,0,0,0.55); padding:7px 8px 2px 8px; border-radius:6px; font-size:18px;">ON</span>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    (function() {
+      var ablDiv = document.querySelector('#ablation-compare');
+      var activePill = 'No Arm Input';
+      var activeVideo = 'ARCTIC_EGO';
+
+      var pills = ablDiv.querySelectorAll('.ablation-pill');
+      var leftVideo = ablDiv.querySelector('#ablation-comp-left');
+      var rightVideo = ablDiv.querySelector('#ablation-comp-right');
+      var leftLabel = ablDiv.querySelector('#ablation-comp-label-left');
+      var canvas = ablDiv.querySelector('#ablation-comp-canvas');
+      var ctx = canvas.getContext('2d');
+      var sliderPos = 0.5;
+      var canvasReady = false;
+
+      // Frame sync
+      leftVideo.addEventListener('play', function() { rightVideo.play(); });
+      leftVideo.addEventListener('pause', function() { rightVideo.pause(); });
+      leftVideo.addEventListener('seeked', function() { rightVideo.currentTime = leftVideo.currentTime; });
+      leftVideo.addEventListener('timeupdate', function() {
+        if (Math.abs(leftVideo.currentTime - rightVideo.currentTime) > 0.15) {
+          rightVideo.currentTime = leftVideo.currentTime;
+        }
+      });
+
+      function initCanvas() {
+        if (leftVideo.videoWidth && rightVideo.videoWidth) {
+          canvas.width = leftVideo.videoWidth;
+          canvas.height = leftVideo.videoHeight;
+          canvasReady = true;
+        }
+      }
+      leftVideo.addEventListener('loadeddata', initCanvas);
+      rightVideo.addEventListener('loadeddata', initCanvas);
+
+      canvas.addEventListener('mousemove', function(e) {
+        var bcr = canvas.getBoundingClientRect();
+        sliderPos = (e.pageX - bcr.x) / bcr.width;
+      });
+      canvas.addEventListener('touchstart', function(e) {
+        var bcr = canvas.getBoundingClientRect();
+        sliderPos = (e.touches[0].pageX - bcr.x) / bcr.width;
+      });
+      canvas.addEventListener('touchmove', function(e) {
+        var bcr = canvas.getBoundingClientRect();
+        sliderPos = (e.touches[0].pageX - bcr.x) / bcr.width;
+      });
+
+      function clamp(v, min, max) { return Math.min(Math.max(v, min), max); }
+
+      function drawLoop() {
+        if (canvasReady && leftVideo.readyState >= 2 && rightVideo.readyState >= 2) {
+          var W = canvas.width, H = canvas.height;
+          var splitX = clamp(W * sliderPos, 0, W);
+          ctx.drawImage(leftVideo, 0, 0, splitX, H, 0, 0, splitX, H);
+          var rW = W - splitX;
+          if (rW > 0) ctx.drawImage(rightVideo, splitX, 0, rW, H, splitX, 0, rW, H);
+          ctx.beginPath(); ctx.moveTo(splitX, 0); ctx.lineTo(splitX, H);
+          ctx.strokeStyle = '#444'; ctx.lineWidth = 4; ctx.stroke();
+          var arrowLen = 0.09 * H, headW = 0.025 * H, headL = 0.04 * H, posY = H / 10, lineW = 0.007 * H;
+          ctx.beginPath(); ctx.arc(splitX, posY, arrowLen * 0.7, 0, Math.PI * 2, false);
+          ctx.fillStyle = '#FFD79340'; ctx.fill();
+          ctx.beginPath();
+          ctx.moveTo(splitX, posY - lineW / 2);
+          ctx.lineTo(splitX + arrowLen / 2 - headL / 2, posY - lineW / 2);
+          ctx.lineTo(splitX + arrowLen / 2 - headL / 2, posY - headW / 2);
+          ctx.lineTo(splitX + arrowLen / 2, posY);
+          ctx.lineTo(splitX + arrowLen / 2 - headL / 2, posY + headW / 2);
+          ctx.lineTo(splitX + arrowLen / 2 - headL / 2, posY + lineW / 2);
+          ctx.lineTo(splitX - arrowLen / 2 + headL / 2, posY + lineW / 2);
+          ctx.lineTo(splitX - arrowLen / 2 + headL / 2, posY + headW / 2);
+          ctx.lineTo(splitX - arrowLen / 2, posY);
+          ctx.lineTo(splitX - arrowLen / 2 + headL / 2, posY - headW / 2);
+          ctx.lineTo(splitX - arrowLen / 2 + headL / 2, posY - lineW / 2);
+          ctx.closePath(); ctx.fillStyle = '#444'; ctx.fill();
+        }
+        requestAnimationFrame(drawLoop);
+      }
+      requestAnimationFrame(drawLoop);
+
+      function updateAblation() {
+        pills.forEach(function(pill) {
+          if (pill.getAttribute('data-value') === activePill) {
+            pill.classList.add('active');
+            pill.querySelector('a').classList.add('active');
+          } else {
+            pill.classList.remove('active');
+            pill.querySelector('a').classList.remove('active');
+          }
+        });
+        canvasReady = false;
+        leftVideo.src = 'videos/ablation/' + encodeURIComponent(activePill) + '/' + activeVideo + '.mp4';
+        rightVideo.src = 'videos/ablation/ours/' + activeVideo + '.mp4';
+        leftLabel.textContent = activePill;
+      }
+
+      pills.forEach(function(pill) {
+        pill.addEventListener('click', function() {
+          activePill = this.getAttribute('data-value');
+          activeVideo = this.getAttribute('data-video');
+          updateAblation();
+        });
+      });
+
+      updateAblation();
+    })();
+    </script>
+
+  </div>
+</section>
+
+
+<section class="section">
+  
+  <div class="container is-max-desktop">
+    
+    <div class="container is-max-desktop content">
+      <h2 class="title">BibTeX</h2>
+      <pre><code>@inproceedings{millerdurai2026egoforce,
+      title={EgoForce: Forearm-Guided Camera-Space 3D Hand Pose from a Monocular Egocentric Camera},
+      author={Millerdurai, Christen and Wang, Shaoxiang and Xie, Yaxu and Golyanik, Vladislav and Stricker, Didier and Pagani, Alain},
+      booktitle={Proceedings of the SIGGRAPH 2026 Conference Papers},
+      year={2026}
+    }</code></pre>
+    </div>
+      
+    <!-- Acknowledgements -->
+    <div class="container is-max-desktop content">
+      <h2 class="title">Acknowledgements</h2>
+      This work was partially funded by the Horizon Europe programme under the projects dAIEDGE, Grant Agreement No. 101120726, and IRIS-XR, Grant Agreement No. 101298672. The authors thank the anonymous reviewers for their valuable feedback.
+    </div>
+      
+  </div>
+</section>
+
+
+
+
+<!-- Javascript Functions --> 
+<script type="text/javascript">
+  let slideIndex = [1];
+  let slideId = 0;
+  showSlides(slideId, slideIndex[slideId]);
+
+  // Next/previous controls
+  function plusSlides(id, n) {
+    showSlides(id, (slideIndex[id] += n));
+  }
+
+  // Thumbnail image controls
+  function currentSlide(id, n) {
+    showSlides(id, (slideIndex[id] = n));
+  }
+
+  function showSlides(id, n) {
+    let i;
+    let slides = document.getElementsByClassName("mySlides" + id);
+    let dots = document.getElementsByClassName("dot" + id);
+    if (n > slides.length) {
+      slideIndex[id] = 1;
+    }
+    if (n < 1) {
+      slideIndex[id] = slides.length;
+    }
+    for (i = 0; i < slides.length; i++) {
+      slides[i].style.display = "none";
+    }
+    for (i = 0; i < dots.length; i++) {
+      dots[i].className = dots[i].className.replace(" active", "");
+    }
+    slides[slideIndex[id] - 1].style.display = "block";
+    dots[slideIndex[id] - 1].className += " active";
+  }
+
+  // Automatic slideshow
+  setInterval(() => {
+    plusSlides(0, 1);
+  }, 150000); // Change image every 5 seconds
+</script>
+
+
+
+
+<footer class="footer">
+  <div class="container">
+    <div class="content has-text-centered">
+      <a class="icon-link" href="https://chris10m.github.io/" class="external-link" disabled>
+        <i class="fas fa-regular fa-user"></i>
+      </a>
+    </div>
+    <div class="columns is-centered">
+      <div class="column is-8">
+        <div class="content">
+          <p>
+            This website is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">Creative
+            Commons Attribution-ShareAlike 4.0 International License</a>.
+            Our project page is built upon <a href="https://github.com/nerfies/nerfies.github.io">NeRFies</a>, <a href="https://dorverbin.github.io/refnerf">Ref-NeRF</a>, <a href="https://noposplat.github.io/">NoPoSplat</a> and <a href="https://zju3dv.github.io/free360/">Free360</a>.
+            Our logo was built by <a href="https://www.flaticon.com/free-icon/" title="great icons">Freepik-Flaticon</a>.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
