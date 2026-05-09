@@ -75,8 +75,8 @@ ANYCALIB_LENS_SPECS = {
 }
 LENS_CHOICES = [(spec["label"], key) for key, spec in ANYCALIB_LENS_SPECS.items()]
 PROJECT_LINKS = {
-    "arxiv": "https://arxiv.org/abs/2511.06457",
-    "code": "https://github.com/Chris10M/EgoForce/tree/main",
+    "arxiv": "",
+    "code": "https://github.com/dfki-av/EgoForce/tree/main",
     "data": "https://huggingface.co/datasets/chris10/EgoForce",
     "venue": "https://www.siggraph.org/",
 }
@@ -122,8 +122,8 @@ def build_gradio_hero_html():
 
         <div class="egoforce-hero-affiliations">
           <span><sup>1</sup>German Research Center for Artificial Intelligence (DFKI)</span>
-          <span><sup>2</sup>RPTU</span>
-          <span><sup>3</sup>Max Planck Institute for Informatics</span>
+          <span><sup>2</sup>Rhineland-Palatinate Technical University of Kaiserslautern-Landau (RPTU)</span>
+          <span><sup>3</sup>Max Planck Institute for Informatics (MPII)</span>
         </div>
 
         <div class="egoforce-hero-venue">
