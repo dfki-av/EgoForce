@@ -5,6 +5,8 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(ROOT_DIR)
 
 import argparse
+import hashlib
+import json
 import shutil
 import subprocess
 import sys
@@ -16,7 +18,10 @@ from pathlib import Path
 from urllib.parse import quote
 
 import cv2
+import spaces
 import torch
+from egoforce_runtime_patches import apply_runtime_patches
+apply_runtime_patches()
 import gradio as gr
 import numpy as np
 
@@ -41,9 +46,16 @@ DEFAULT_LENS_MODE = "fisheye624"
 DEFAULT_VIDEO_INFO = "Upload a video to choose a start time."
 GRADIO_TMP_DIR = Path("/tmp/gradio")
 GRADIO_TMP_CLEAN_INTERVAL_SECONDS = 30 * 60
-GRADIO_TMP_MIN_AGE_SECONDS = 30 * 60
+GRADIO_TMP_MIN_AGE_SECONDS = 30 * 24 * 60 * 60
+LOW_DISK_FREE_BYTES = 1 * 1024 * 1024 * 1024
+LOW_DISK_EVICTION_MIN_AGE_SECONDS = 10 * 60
 EGOFORCE_TMP_DIR = Path(tempfile.gettempdir())
+EGOFORCE_PERSISTENT_ROOT = Path(os.environ.get("EGOFORCE_PERSISTENT_ROOT", "/data")).expanduser()
 EGOFORCE_TMP_PREFIX = "egoforce-gradio-"
+EGOFORCE_LOG_PREFIX = "egoforce-log"
+PREDICTION_CACHE_OUTPUT_NAME = "prediction.mp4"
+PREDICTION_CACHE_METADATA_NAME = "metadata.json"
+PREDICTION_CACHE_VERSION = "v1"
 ASSETS_DIR = Path(ROOT_DIR) / "assets"
 ASSETS_IMAGE_DIR = ASSETS_DIR / "images"
 ASSETS_CSS_DIR = ASSETS_DIR / "css"
@@ -51,6 +63,38 @@ GRADIO_HERO_CSS_PATH = ASSETS_CSS_DIR / "gradio_hero.css"
 SAMPLE_VIDEOS_DIR = Path(ROOT_DIR) / "_DATA" / "sample_videos"
 SAMPLE_VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".webm"}
 MAX_STACKED_OUTPUT_WIDTH = (1080 * 3) - 2
+
+
+def resolve_prediction_cache_dir():
+    candidate_roots = [EGOFORCE_PERSISTENT_ROOT, EGOFORCE_TMP_DIR]
+    seen_roots = set()
+
+    for root in candidate_roots:
+        root = Path(root)
+        root_key = str(root.resolve()) if root.exists() else str(root)
+        if root_key in seen_roots:
+            continue
+        seen_roots.add(root_key)
+
+        try:
+            if root.exists():
+                if not root.is_dir() or not os.access(root, os.W_OK | os.X_OK):
+                    continue
+            else:
+                root.mkdir(parents=True, exist_ok=True)
+
+            cache_dir = root / "egoforce-prediction-cache"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            return cache_dir
+        except OSError:
+            continue
+
+    fallback_dir = EGOFORCE_TMP_DIR / "egoforce-prediction-cache"
+    fallback_dir.mkdir(parents=True, exist_ok=True)
+    return fallback_dir
+
+
+PREDICTION_CACHE_DIR = resolve_prediction_cache_dir()
 
 
 ANYCALIB_LENS_SPECS = {
@@ -286,10 +330,195 @@ def cleanup_stale_egoforce_tmp_entries():
             continue
 
 
+def cleanup_stale_prediction_cache_entries():
+    if not PREDICTION_CACHE_DIR.exists():
+        return
+
+    cutoff_time = time.time() - GRADIO_TMP_MIN_AGE_SECONDS
+    for child in PREDICTION_CACHE_DIR.iterdir():
+        try:
+            if child.stat().st_mtime > cutoff_time:
+                continue
+            if child.is_dir():
+                shutil.rmtree(child, ignore_errors=True)
+            else:
+                child.unlink(missing_ok=True)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            continue
+
+
+def cleanup_stale_log_entries():
+    if not EGOFORCE_TMP_DIR.exists():
+        return
+
+    cutoff_time = time.time() - GRADIO_TMP_MIN_AGE_SECONDS
+    for child in EGOFORCE_TMP_DIR.iterdir():
+        if not child.name.startswith(EGOFORCE_LOG_PREFIX):
+            continue
+
+        try:
+            if child.stat().st_mtime > cutoff_time:
+                continue
+            if child.is_dir():
+                shutil.rmtree(child, ignore_errors=True)
+            else:
+                child.unlink(missing_ok=True)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            continue
+
+
+def remove_managed_path(path):
+    if not path:
+        return
+
+    if path.is_dir():
+        shutil.rmtree(path, ignore_errors=True)
+        return
+
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def iter_managed_cleanup_entries():
+    if GRADIO_TMP_DIR.exists():
+        yield from GRADIO_TMP_DIR.iterdir()
+
+    if EGOFORCE_TMP_DIR.exists():
+        for child in EGOFORCE_TMP_DIR.iterdir():
+            if child == PREDICTION_CACHE_DIR:
+                continue
+            if child.name.startswith(EGOFORCE_TMP_PREFIX) or child.name.startswith(EGOFORCE_LOG_PREFIX):
+                yield child
+
+    if PREDICTION_CACHE_DIR.exists():
+        yield from PREDICTION_CACHE_DIR.iterdir()
+
+
+def cleanup_low_disk_entries():
+    try:
+        free_bytes = shutil.disk_usage(EGOFORCE_TMP_DIR).free
+    except OSError:
+        return
+
+    if free_bytes >= LOW_DISK_FREE_BYTES:
+        return
+
+    cutoff_time = time.time() - LOW_DISK_EVICTION_MIN_AGE_SECONDS
+    eviction_candidates = []
+    for child in iter_managed_cleanup_entries():
+        try:
+            child_stat = child.stat()
+        except (FileNotFoundError, OSError):
+            continue
+
+        if child_stat.st_mtime > cutoff_time:
+            continue
+
+        eviction_candidates.append((child_stat.st_mtime, child))
+
+    for _, child in sorted(eviction_candidates, key=lambda item: item[0]):
+        remove_managed_path(child)
+        try:
+            if shutil.disk_usage(EGOFORCE_TMP_DIR).free >= LOW_DISK_FREE_BYTES:
+                break
+        except OSError:
+            break
+
+
+def compute_file_sha256(file_path, chunk_size=1024 * 1024):
+    digest = hashlib.sha256()
+    with Path(file_path).open("rb") as handle:
+        while True:
+            chunk = handle.read(chunk_size)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def build_prediction_cache_key(
+    input_path,
+    *,
+    start_seconds,
+    only_ten_seconds,
+    include_arm_mesh,
+    lens_mode,
+    calibration_frame_index,
+):
+    file_hash = compute_file_sha256(input_path)
+    key_payload = {
+        "version": PREDICTION_CACHE_VERSION,
+        "input_sha256": file_hash,
+        "start_seconds": round(float(start_seconds or 0.0), 3),
+        "only_ten_seconds": bool(only_ten_seconds),
+        "include_arm_mesh": bool(include_arm_mesh),
+        "lens_mode": lens_mode,
+        "calibration_frame_index": int(calibration_frame_index),
+    }
+    return hashlib.sha256(json.dumps(key_payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def get_prediction_cache_entry(cache_key):
+    cache_dir = PREDICTION_CACHE_DIR / cache_key
+    output_path = cache_dir / PREDICTION_CACHE_OUTPUT_NAME
+    metadata_path = cache_dir / PREDICTION_CACHE_METADATA_NAME
+    if not output_path.exists() or not metadata_path.exists():
+        return None
+
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    calibration_info = metadata.get("calibration_info")
+    if not calibration_info:
+        return None
+
+    return str(output_path), calibration_info
+
+
+def store_prediction_cache_entry(cache_key, output_path, calibration_info):
+    PREDICTION_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    cache_dir = PREDICTION_CACHE_DIR / cache_key
+    if cache_dir.exists():
+        shutil.rmtree(cache_dir, ignore_errors=True)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    cached_output_path = cache_dir / PREDICTION_CACHE_OUTPUT_NAME
+    cached_metadata_path = cache_dir / PREDICTION_CACHE_METADATA_NAME
+    shutil.copy2(output_path, cached_output_path)
+    cached_metadata_path.write_text(
+        json.dumps(
+            {
+                "created_at": time.time(),
+                "calibration_info": calibration_info,
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    now = time.time()
+    os.utime(cache_dir, (now, now))
+    os.utime(cached_output_path, (now, now))
+    os.utime(cached_metadata_path, (now, now))
+    return str(cached_output_path)
+
+
 def _gradio_tmp_cleaner_loop():
     while True:
         cleanup_stale_gradio_tmp_entries()
         cleanup_stale_egoforce_tmp_entries()
+        cleanup_stale_prediction_cache_entries()
+        cleanup_stale_log_entries()
+        cleanup_low_disk_entries()
         time.sleep(GRADIO_TMP_CLEAN_INTERVAL_SECONDS)
 
 
@@ -763,6 +992,7 @@ def select_sample_video(lens_mode, use_random_calibration_frame, session_artifac
     )
 
 
+@spaces.GPU(duration=600, size='large')
 def process_video(
     video_path,
     session_artifacts,
@@ -781,6 +1011,28 @@ def process_video(
     input_path = Path(video_path)
     if not input_path.exists():
         raise gr.Error(f"Input video not found: {input_path}")
+
+    progress(0.03, desc="Inspecting input video...")
+    fps, frame_count, _ = inspect_video(input_path)
+    calibration_frame_index, calibration_frame_mode = select_calibration_frame(
+        frame_count,
+        use_random_calibration_frame,
+    )
+
+    cache_key = build_prediction_cache_key(
+        input_path,
+        start_seconds=start_seconds,
+        only_ten_seconds=only_ten_seconds,
+        include_arm_mesh=include_arm_mesh,
+        lens_mode=lens_mode,
+        calibration_frame_index=calibration_frame_index,
+    )
+    cached_prediction = get_prediction_cache_entry(cache_key)
+    if cached_prediction is not None:
+        cleanup_session_artifacts(session_artifacts)
+        cached_output_path, cached_calibration_info = cached_prediction
+        progress(1.0, desc="Loaded cached prediction.")
+        return cached_output_path, [], cached_calibration_info
 
     capture = None
     writer = None
@@ -807,10 +1059,6 @@ def process_video(
         if not ret:
             raise gr.Error("Could not decode the first video frame for calibration.")
 
-        calibration_frame_index, calibration_frame_mode = select_calibration_frame(
-            frame_count,
-            use_random_calibration_frame,
-        )
         calibration_bgr_frame = (
             first_bgr_frame
             if calibration_frame_index == 0
@@ -915,6 +1163,10 @@ def process_video(
     try:
         progress(0.95, desc="Finalizing output video...")
         finalize_output_video_for_web(raw_output_path, final_output_path)
+        try:
+            store_prediction_cache_entry(cache_key, final_output_path, calibration_info)
+        except OSError:
+            pass
     except Exception:
         cleanup_session_artifacts(new_session_artifacts)
         raise
