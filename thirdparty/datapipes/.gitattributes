@@ -1,0 +1,2 @@
+*.ipynb filter=strip-notebook-output
+*.png filter=lfs diff=lfs merge=lfs -text
