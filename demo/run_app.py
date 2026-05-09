@@ -1085,7 +1085,7 @@ def process_video(
         if start_frame > 0:
             capture.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
-        max_frames = int(round(10.0 * fps)) if only_ten_seconds else None
+        max_frames = int(round(5.0 * fps)) if only_ten_seconds else None
         total_frames_to_process = max_frames
         if total_frames_to_process is None and frame_count is not None:
             total_frames_to_process = max(0, frame_count - start_frame)
@@ -1224,9 +1224,9 @@ def build_app():
                 interactive=False,
             )
             only_ten_seconds = gr.Checkbox(
-                label="Process Only 10 Seconds",
+                label="Process Only 5 Seconds",
                 value=True,
-                info="If enabled, the app processes at most 10 seconds starting from the selected offset.",
+                info="If enabled, the app processes at most 5 seconds starting from the selected offset.",
             )
             include_arm_mesh = gr.Checkbox(
                 label="Show Hand-Arm Mesh",
