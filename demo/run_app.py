@@ -446,7 +446,7 @@ def build_prediction_cache_key(
     input_path,
     *,
     start_seconds,
-    only_ten_seconds,
+    only_five_seconds,
     include_arm_mesh,
     lens_mode,
     calibration_frame_index,
@@ -456,7 +456,7 @@ def build_prediction_cache_key(
         "version": PREDICTION_CACHE_VERSION,
         "input_sha256": file_hash,
         "start_seconds": round(float(start_seconds or 0.0), 3),
-        "only_ten_seconds": bool(only_ten_seconds),
+        "only_five_seconds": bool(only_five_seconds),
         "include_arm_mesh": bool(include_arm_mesh),
         "lens_mode": lens_mode,
         "calibration_frame_index": int(calibration_frame_index),
@@ -992,12 +992,12 @@ def select_sample_video(lens_mode, use_random_calibration_frame, session_artifac
     )
 
 
-@spaces.GPU(duration=600, size='large')
+@spaces.GPU(duration=210, size='large')
 def process_video(
     video_path,
     session_artifacts,
     start_seconds,
-    only_ten_seconds,
+    only_five_seconds,
     include_arm_mesh,
     use_random_calibration_frame,
     lens_mode,
@@ -1022,7 +1022,7 @@ def process_video(
     cache_key = build_prediction_cache_key(
         input_path,
         start_seconds=start_seconds,
-        only_ten_seconds=only_ten_seconds,
+        only_five_seconds=only_five_seconds,
         include_arm_mesh=include_arm_mesh,
         lens_mode=lens_mode,
         calibration_frame_index=calibration_frame_index,
@@ -1085,7 +1085,7 @@ def process_video(
         if start_frame > 0:
             capture.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
-        max_frames = int(round(5.0 * fps)) if only_ten_seconds else None
+        max_frames = int(round(5.0 * fps)) if only_five_seconds else None
         total_frames_to_process = max_frames
         if total_frames_to_process is None and frame_count is not None:
             total_frames_to_process = max(0, frame_count - start_frame)
@@ -1223,7 +1223,7 @@ def build_app():
                 label="Start Time (seconds)",
                 interactive=False,
             )
-            only_ten_seconds = gr.Checkbox(
+            only_five_seconds = gr.Checkbox(
                 label="Process Only 5 Seconds",
                 value=True,
                 info="If enabled, the app processes at most 5 seconds starting from the selected offset.",
@@ -1309,7 +1309,7 @@ def build_app():
                 input_video,
                 session_artifacts,
                 start_slider,
-                only_ten_seconds,
+                only_five_seconds,
                 include_arm_mesh,
                 random_calibration_frame,
                 lens_mode,
@@ -1325,7 +1325,7 @@ def build_app():
                 output_video,
                 session_artifacts,
                 start_slider,
-                only_ten_seconds,
+                only_five_seconds,
                 include_arm_mesh,
                 random_calibration_frame,
                 lens_mode,
