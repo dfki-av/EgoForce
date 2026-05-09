@@ -86,7 +86,7 @@ The model weights, detector checkpoints, MANO files, and demo assets expected by
 bash scripts/download_model_weights.sh
 ```
 
-By default, the main checkpoint path is [settings.py](/home/millerdurai/Repos/EgoForce/settings.py#L28):
+By default, the main checkpoint path is [settings.py](settings.py#L28):
 
 ```python
 config.POSE_3D.CHECKPOINT_PATH = os.path.join(_DATA_DIR, 'model_weights.pth')
@@ -106,7 +106,7 @@ You must pass the destination explicitly:
 bash scripts/download_datasets.sh --data-root /path/to/datasets
 ```
 
-After download, update [settings.py](/home/millerdurai/Repos/EgoForce/settings.py#L12) so `config.DATASET.DIR` points to your dataset root with a trailing slash, for example:
+After download, update [settings.py](settings.py#L12) so `config.DATASET.DIR` points to your dataset root with a trailing slash, for example:
 
 ```python
 config.DATASET.DIR = "/path/to/datasets/"
@@ -129,7 +129,7 @@ Before running experiments, make sure these paths exist:
 
 #### 1. Save predictions
 
-The main entrypoint is [experiments/save_predictions.py](/home/millerdurai/Repos/EgoForce/experiments/save_predictions.py). It runs EgoForce on a dataset split and saves a pickle file under `_DATA/predictions/`.
+The main entrypoint is [experiments/save_predictions.py](experiments/save_predictions.py). It runs EgoForce on a dataset split and saves a pickle file under `_DATA/predictions/`.
 
 Supported datasets are:
 
@@ -169,7 +169,7 @@ _DATA/predictions/<DATASET>_<suffix>_predictions.pkl
 
 #### 2. Evaluate saved predictions
 
-[experiments/evaluate_predictions.py](/home/millerdurai/Repos/EgoForce/experiments/evaluate_predictions.py) reads the saved prediction PKLs, applies the matching suffix logic, and writes evaluation summaries under `results/OURS/`.
+[experiments/evaluate_predictions.py](experiments/evaluate_predictions.py) reads the saved prediction PKLs, applies the matching suffix logic, and writes evaluation summaries under `results/OURS/`.
 
 Example:
 
@@ -193,7 +193,7 @@ Useful options:
 
 #### 3. Intrinsics robustness on HOT3D
 
-[experiments/save_noisy_intrinsic_predictions.py](/home/millerdurai/Repos/EgoForce/experiments/save_noisy_intrinsic_predictions.py) runs a HOT3D-only camera-noise sweep. It first estimates first-frame AnyCalib intrinsics, then evaluates multiple intrinsic noise levels and stores both prediction caches and camera-noise analysis artifacts.
+[experiments/save_noisy_intrinsic_predictions.py](experiments/save_noisy_intrinsic_predictions.py) runs a HOT3D-only camera-noise sweep. It first estimates first-frame AnyCalib intrinsics, then evaluates multiple intrinsic noise levels and stores both prediction caches and camera-noise analysis artifacts.
 
 ```bash
 python experiments/save_noisy_intrinsic_predictions.py
@@ -209,7 +209,7 @@ Optional controls:
 
 This script writes noisy prediction PKLs, camera-noise analysis PKLs, AnyCalib intrinsics JSON files, and plots under `_DATA/noisy_predictions/`.
 
-To aggregate the robustness results, run [experiments/evaluate_noisy_intrinsic_predictions.py](/home/millerdurai/Repos/EgoForce/experiments/evaluate_noisy_intrinsic_predictions.py):
+To aggregate the robustness results, run [experiments/evaluate_noisy_intrinsic_predictions.py](experiments/evaluate_noisy_intrinsic_predictions.py):
 
 ```bash
 python experiments/evaluate_noisy_intrinsic_predictions.py
@@ -223,7 +223,7 @@ results/intrinsics_robustness
 
 #### 4. Hand-scale analysis
 
-[experiments/evaluate_hand_scale.py](/home/millerdurai/Repos/EgoForce/experiments/evaluate_hand_scale.py) evaluates hand-scale consistency and calibration behavior from prediction PKLs. It can auto-discover predictions under `_DATA/predictions/` by suffix, or you can pass files explicitly.
+[experiments/evaluate_hand_scale.py](experiments/evaluate_hand_scale.py) evaluates hand-scale consistency and calibration behavior from prediction PKLs. It can auto-discover predictions under `_DATA/predictions/` by suffix, or you can pass files explicitly.
 
 Auto-discovery example:
 
@@ -247,7 +247,7 @@ results/hand_scale_eval/<suffix>/
 
 #### 5. Visibility-bin forearm ablation
 
-[experiments/hand_joint_occlusion_graph.py](/home/millerdurai/Repos/EgoForce/experiments/hand_joint_occlusion_graph.py) compares ARCTIC predictions with and without forearm input, grouped by hand-joint visibility.
+[experiments/hand_joint_occlusion_graph.py](experiments/hand_joint_occlusion_graph.py) compares ARCTIC predictions with and without forearm input, grouped by hand-joint visibility.
 
 It expects these two prediction files to exist in `_DATA/predictions/`:
 
@@ -270,7 +270,7 @@ results/hand_joint_occlusion_graph/
 
 ### Gradio video demo
 
-The Gradio app in [demo/run_app.py](/home/millerdurai/Repos/EgoForce/demo/run_app.py) runs EgoForce on uploaded videos and shows the output video with the input view, ego-view render, and third-person render.
+The Gradio app in [demo/run_app.py](demo/run_app.py) runs EgoForce on uploaded videos and shows the output video with the input view, ego-view render, and third-person render.
 
 Start it with:
 
@@ -287,7 +287,7 @@ python demo/run_app.py --share
 
 ### Project Aria live demo
 
-The live Aria demo in [demo/run_aria.py](/home/millerdurai/Repos/EgoForce/demo/run_aria.py) streams RGB frames from a Project Aria device over USB and runs inference frame by frame.
+The live Aria demo in [demo/run_aria.py](demo/run_aria.py) streams RGB frames from a Project Aria device over USB and runs inference frame by frame.
 
 Run:
 
