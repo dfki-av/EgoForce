@@ -30,7 +30,9 @@
 </p>
 
 <p align="center">
-  <a href="">arXiv</a>
+  <a href="https://dfki-av.github.io/EgoForce">Project Page</a>
+  &nbsp;|&nbsp;
+  <a href="https://arxiv.org/pdf/2605.12498">arXiv</a>
   &nbsp;|&nbsp;
   <a href="https://github.com/dfki-av/EgoForce/tree/main">Code</a>
   &nbsp;|&nbsp;

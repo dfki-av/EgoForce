@@ -20,8 +20,11 @@ from urllib.parse import quote
 import cv2
 import spaces
 import torch
-from egoforce_runtime_patches import apply_runtime_patches
-apply_runtime_patches()
+try:
+    from egoforce_runtime_patches import apply_runtime_patches
+    apply_runtime_patches()
+except ImportError:
+    pass    
 import gradio as gr
 import numpy as np
 
@@ -119,7 +122,8 @@ ANYCALIB_LENS_SPECS = {
 }
 LENS_CHOICES = [(spec["label"], key) for key, spec in ANYCALIB_LENS_SPECS.items()]
 PROJECT_LINKS = {
-    "arxiv": "",
+    "project": "https://dfki-av.github.io/EgoForce",
+    "arxiv": "https://arxiv.org/pdf/2605.12498",
     "code": "https://github.com/dfki-av/EgoForce/tree/main",
     "data": "https://huggingface.co/datasets/chris10/EgoForce",
     "venue": "https://www.siggraph.org/",
@@ -177,6 +181,7 @@ def build_gradio_hero_html():
         </div>
 
         <div class="egoforce-hero-links">
+          <a class="egoforce-hero-link" href="{PROJECT_LINKS['project']}" target="_blank" rel="noopener noreferrer">Project Page</a>
           <a class="egoforce-hero-link" href="{PROJECT_LINKS['arxiv']}" target="_blank" rel="noopener noreferrer">arXiv</a>
           <a class="egoforce-hero-link" href="{PROJECT_LINKS['code']}" target="_blank" rel="noopener noreferrer">Code</a>
           <a class="egoforce-hero-link" href="{PROJECT_LINKS['data']}" target="_blank" rel="noopener noreferrer">Data</a>
