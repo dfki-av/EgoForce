@@ -291,6 +291,7 @@ class Inference:
         if DetInferencer is not None and os.path.exists(cfg.DETECTION.HAND_ARM_PATH):
             try:
                 self.box_inferencer = DetInferencer(f'{ROOT_DIR}/demo/rtmdet_tiny_8xb32-300e_combined_cutmix.py', weights=cfg.DETECTION.HAND_ARM_PATH, device=self.device)
+                self.box_inferencer.show_progress = False
 
                 det_model = self.box_inferencer.model.eval().half()
                 det_model = optimize_mmdet_model_for_inference(det_model)

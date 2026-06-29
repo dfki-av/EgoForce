@@ -149,6 +149,13 @@ def summarize_side(frames, side):
             for row in rows
             if row.get("translation_after") is not None and row["translation_after"][2] <= 0.05
         ),
+        "missing_crop_frames": sum(1 for row in rows if row.get("crop_source") is None),
+        "low_confidence_hand_frames": sum(
+            1
+            for row in rows
+            if row.get("hand_weight_sum") is None
+            or row.get("hand_weight_sum") < rv.EGOFORCE_MIN_HAND_WEIGHT_SUM
+        ),
         "hand_weight_sum_median": percentile([row.get("hand_weight_sum") for row in rows], 50),
         "hand_weight_sum_p05": percentile([row.get("hand_weight_sum") for row in rows], 5),
         "arm_weight_sum_median": percentile([row.get("arm_weight_sum") for row in rows], 50),
@@ -227,6 +234,7 @@ def main():
         if not selected_rows:
             raise RuntimeError("No ARKit rows found for requested time window.")
 
+        row_fps = rv.fps_from_arkit_rows(selected_rows, fps)
         camera_row = selected_rows[0]
         start_frame = max(0, int(camera_row.get("frame_index", round(start_time * fps))))
         inference.reset_runtime_state()
@@ -234,12 +242,13 @@ def main():
             rv.camera_model_from_arkit_row(camera_row),
             undistort_inp=args.egoforce_undistort_inp,
         )
-        inference.set_kalman_filter_frequency(fps)
+        inference.set_kalman_filter_frequency(row_fps)
 
         frames = []
+        frame_reader = rv.IndexedVideoFrameReader(capture)
         for processed, arkit_row in enumerate(selected_rows):
             video_frame_index = int(arkit_row.get("frame_index", start_frame + processed))
-            bgr = rv.read_frame_by_index(capture, video_frame_index)
+            bgr = frame_reader.read(video_frame_index)
             if bgr is None:
                 continue
             rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
@@ -352,7 +361,8 @@ def main():
         "depth_anchor": args.depth_anchor,
         "egoforce_input_cleanup": args.egoforce_input_cleanup,
         "egoforce_undistort_inp": args.egoforce_undistort_inp,
-        "fps": fps,
+        "video_fps": fps,
+        "row_fps": row_fps,
         "frames_analyzed": len(frames),
         "input_cleanup_masked_pixels_median": percentile(
             [

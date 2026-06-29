@@ -191,7 +191,8 @@ def run_outputs_with_boxes(inference, rgb, boxes):
     left_data = inference.left_dataset.transform(rgb, boxes["left"])
     right_data = inference.right_dataset.transform(rgb, boxes["right"])
     with torch.no_grad():
-        return infer_fn(inference, cfg, inference.model, inference.limb_model, left_data, right_data, inference.device)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return infer_fn(inference, cfg, inference.model, inference.limb_model, left_data, right_data, inference.device)
 
 
 def get_boxes(inference, rgb, crop_source, hand_pose_row, arm_source):
@@ -283,15 +284,17 @@ def main():
             raise RuntimeError("No ARKit rows found for requested time window.")
 
         camera_row = selected_rows[0]
+        row_fps = rv.fps_from_arkit_rows(selected_rows, fps)
         start_frame = max(0, int(camera_row.get("frame_index", round(max(0.0, args.start_seconds) * fps))))
         inference.reset_runtime_state()
         inference.set_camera_model(rv.camera_model_from_arkit_row(camera_row), undistort_inp=False)
-        inference.set_kalman_filter_frequency(fps)
+        inference.set_kalman_filter_frequency(row_fps)
 
         output_path = output_dir / f"{args.pair_id}_pipeline_{args.crop_source}_{args.arm_source}.mp4"
+        frame_reader = rv.IndexedVideoFrameReader(cap)
         for arkit_row in selected_rows:
             video_frame_index = int(arkit_row.get("frame_index", start_frame + processed))
-            bgr = rv.read_frame_by_index(cap, video_frame_index)
+            bgr = frame_reader.read(video_frame_index)
             if bgr is None:
                 continue
             rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
@@ -332,14 +335,14 @@ def main():
                 writer = cv2.VideoWriter(
                     str(output_path),
                     cv2.VideoWriter_fourcc(*"mp4v"),
-                    fps,
+                    row_fps,
                     (frame.shape[1], frame.shape[0]),
                 )
                 if not writer.isOpened():
                     raise RuntimeError(f"Could not create output video: {output_path}")
             writer.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
             processed += 1
-            if processed == 1 or processed % max(1, int(round(fps))) == 0:
+            if processed == 1 or processed % max(1, int(round(row_fps))) == 0:
                 print(f"{args.pair_id}: processed {processed} frames")
     finally:
         cap.release()

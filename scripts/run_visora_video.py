@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 import argparse
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -9,6 +11,7 @@ from pathlib import Path
 
 os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 os.environ.setdefault("EGOFORCE_DISABLE_TRT", "1")
+os.environ.setdefault("NO_ALBUMENTATIONS_UPDATE", "1")
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DEMO_DIR = ROOT_DIR / "demo"
@@ -98,6 +101,9 @@ HYBRID_MAX_CENTER_DISTANCE_FACTOR = 0.85
 HYBRID_MIN_CENTER_DISTANCE_PIXELS = 160.0
 MARKER_CLEANUP_BOX_MARGIN = 10
 MARKER_CLEANUP_MAX_ROI_FRACTION = 0.18
+EGOFORCE_MIN_HAND_WEIGHT_SUM = 0.05
+EGOFORCE_DRAW_CONFIDENCE_THRESHOLD = 0.004
+EGOFORCE_MIN_DRAW_JOINTS = 6
 
 
 def ensure_egoforce_runtime():
@@ -321,12 +327,57 @@ def arkit_rows_for_time_window(
     return selected
 
 
+def fps_from_arkit_rows(rows, fallback_fps):
+    if len(rows) < 2:
+        return float(fallback_fps)
+
+    first_timestamp = rows[0].get("timestamp")
+    last_timestamp = rows[-1].get("timestamp")
+    if first_timestamp is None or last_timestamp is None:
+        return float(fallback_fps)
+
+    duration = float(last_timestamp) - float(first_timestamp)
+    if duration <= 0:
+        return float(fallback_fps)
+    return float((len(rows) - 1) / duration)
+
+
 def read_frame_by_index(capture, frame_index):
     capture.set(cv2.CAP_PROP_POS_FRAMES, int(frame_index))
     ok, bgr_image = capture.read()
     if not ok:
         return None
     return bgr_image
+
+
+class IndexedVideoFrameReader:
+    """Read monotonically indexed frames by decoding forward when possible."""
+
+    def __init__(self, capture, sequential_skip_limit=None):
+        self.capture = capture
+        self.next_frame_index = int(round(capture.get(cv2.CAP_PROP_POS_FRAMES)))
+        self.sequential_skip_limit = None if sequential_skip_limit is None else int(sequential_skip_limit)
+
+    def read(self, frame_index):
+        frame_index = int(frame_index)
+        if self.next_frame_index is not None and frame_index >= self.next_frame_index:
+            skip_count = frame_index - self.next_frame_index
+            if self.sequential_skip_limit is None or skip_count <= self.sequential_skip_limit:
+                for _ in range(skip_count):
+                    if not self.capture.grab():
+                        self.next_frame_index = None
+                        break
+                else:
+                    ok, bgr_image = self.capture.read()
+                    if not ok:
+                        self.next_frame_index = None
+                        return None
+                    self.next_frame_index = frame_index + 1
+                    return bgr_image
+
+        bgr_image = read_frame_by_index(self.capture, frame_index)
+        self.next_frame_index = frame_index + 1 if bgr_image is not None else None
+        return bgr_image
 
 
 def camera_model_from_arkit_row(row):
@@ -986,23 +1037,33 @@ def select_egoforce_overlay_points(outs, hdx, side, bounding_boxes, image_shape,
 
 def draw_egoforce_hand_overlay(rgb_image, outs, bounding_boxes=None, overlay_space="auto"):
     overlay = rgb_image.copy()
+    hand_weights = np.asarray(outs.get("pred_hand_kpt_w", []), dtype=np.float32)
     for hdx, side in enumerate(("left", "right")):
-        if bounding_boxes is not None and "hand" not in bounding_boxes.get(side, {}):
-            continue
-
         color = EGOFORCE_HAND_COLORS[side]
-        points = select_egoforce_overlay_points(outs, hdx, side, bounding_boxes, rgb_image.shape, overlay_space)
-        points_by_name = {
-            joint_name: np.array([points[jdx, 0], points[jdx, 1], 1.0], dtype=np.float32)
-            for jdx, joint_name in enumerate(HAND_JOINT_ORDER)
-            if jdx < len(points) and np.isfinite(points[jdx]).all()
-        }
-        draw_hand_skeleton(overlay, points_by_name, color)
+        side_boxes = {} if bounding_boxes is None else bounding_boxes.get(side, {})
 
-        if bounding_boxes is None:
-            continue
+        if "hand" in side_boxes:
+            weights = hand_weights[hdx] if hand_weights.ndim >= 2 and hdx < len(hand_weights) else None
+            weight_sum = None if weights is None else float(np.nansum(weights))
+            if weight_sum is None or weight_sum >= EGOFORCE_MIN_HAND_WEIGHT_SUM:
+                points = select_egoforce_overlay_points(outs, hdx, side, bounding_boxes, rgb_image.shape, overlay_space)
+                points_by_name = {}
+                for jdx, joint_name in enumerate(HAND_JOINT_ORDER):
+                    if jdx >= len(points) or not np.isfinite(points[jdx]).all():
+                        continue
+                    confidence = 1.0 if weights is None or jdx >= len(weights) else float(weights[jdx])
+                    points_by_name[joint_name] = np.array([points[jdx, 0], points[jdx, 1], confidence], dtype=np.float32)
+
+                if sum(point[2] >= EGOFORCE_DRAW_CONFIDENCE_THRESHOLD for point in points_by_name.values()) >= EGOFORCE_MIN_DRAW_JOINTS:
+                    draw_hand_skeleton(
+                        overlay,
+                        points_by_name,
+                        color,
+                        confidence_threshold=EGOFORCE_DRAW_CONFIDENCE_THRESHOLD,
+                    )
+
         for box_name in ("hand", "arm"):
-            record = bounding_boxes.get(side, {}).get(box_name)
+            record = side_boxes.get(box_name)
             if record is None:
                 continue
             x1, y1, x2, y2 = np.round(record["bbox"]).astype(int)
@@ -1050,7 +1111,8 @@ def run_egoforce_outputs(
     left_data = inference.left_dataset.transform(model_rgb, bounding_boxes["left"])
     right_data = inference.right_dataset.transform(model_rgb, bounding_boxes["right"])
     with torch.no_grad():
-        outs = infer_fn(inference, cfg, inference.model, inference.limb_model, left_data, right_data, inference.device)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            outs = infer_fn(inference, cfg, inference.model, inference.limb_model, left_data, right_data, inference.device)
     if cleanup_mask is not None:
         outs["input_cleanup"] = {
             "mode": input_cleanup,
@@ -1106,13 +1168,14 @@ def process_pair(
         if not selected_rows:
             raise ValueError(f"No ARKit frames found in requested time window for {arkit_zip_path}")
 
+        row_fps = fps_from_arkit_rows(selected_rows, fps)
         camera_row = selected_rows[0]
         start_frame = max(0, int(camera_row.get("frame_index", round(start_time_seconds * fps))))
 
         if inference is not None:
             inference.reset_runtime_state()
             inference.set_camera_model(camera_model_from_arkit_row(camera_row), undistort_inp=False)
-            inference.set_kalman_filter_frequency(fps)
+            inference.set_kalman_filter_frequency(row_fps)
 
         crop_tag = (
             f"_{egoforce_crop_source}_crops"
@@ -1121,19 +1184,21 @@ def process_pair(
         )
         output_path = output_dir / f"{pair_dir.name}_{viz_mode.replace('-', '_')}{crop_tag}.mp4"
         print(
-            f"{pair_dir.name}: fps={fps:.3f}, start_time={start_time_seconds:.3f}s, "
+            f"{pair_dir.name}: video_fps={fps:.3f}, row_fps={row_fps:.3f}, start_time={start_time_seconds:.3f}s, "
             f"start_frame_est={start_frame}, frame_limit={len(selected_rows)}, "
             f"arkit_frame={camera_row.get('frame_index')}, "
             f"arkit_dt={float(camera_row.get('timestamp', arkit_start_timestamp)) - (arkit_start_timestamp + start_time_seconds):.4f}s, "
             f"viz_mode={viz_mode}, egoforce_crop_source={egoforce_crop_source}, "
             f"egoforce_arm_source={egoforce_arm_source}, "
             f"egoforce_depth_anchor={egoforce_depth_anchor}, "
-            f"egoforce_input_cleanup={egoforce_input_cleanup}"
+            f"egoforce_input_cleanup={egoforce_input_cleanup}",
+            flush=True,
         )
 
+        frame_reader = IndexedVideoFrameReader(capture)
         for arkit_row in selected_rows:
             video_frame_index = int(arkit_row.get("frame_index", start_frame + processed))
-            bgr_image = read_frame_by_index(capture, video_frame_index)
+            bgr_image = frame_reader.read(video_frame_index)
             if bgr_image is None:
                 continue
             rgb_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2RGB)
@@ -1246,7 +1311,7 @@ def process_pair(
                 writer = cv2.VideoWriter(
                     str(output_path),
                     cv2.VideoWriter_fourcc(*"mp4v"),
-                    fps,
+                    row_fps,
                     (width, height),
                 )
                 if not writer.isOpened():
@@ -1254,8 +1319,8 @@ def process_pair(
 
             writer.write(cv2.cvtColor(output_rgb, cv2.COLOR_RGB2BGR))
             processed += 1
-            if processed == 1 or processed % max(1, int(round(fps))) == 0:
-                print(f"{pair_dir.name}: processed {processed} frames")
+            if processed == 1 or processed % max(1, int(round(row_fps))) == 0:
+                print(f"{pair_dir.name}: processed {processed} frames", flush=True)
     finally:
         capture.release()
         if writer is not None:
@@ -1267,7 +1332,7 @@ def process_pair(
         raise RuntimeError(f"No frames processed for {pair_dir}")
 
     transcode_browser_mp4(output_path)
-    print(f"{pair_dir.name}: wrote {output_path} ({processed} frames)")
+    print(f"{pair_dir.name}: wrote {output_path} ({processed} frames)", flush=True)
     return output_path
 
 
