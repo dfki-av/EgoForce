@@ -5,21 +5,29 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(ROOT_DIR)
 
 import torch
-import torch_tensorrt
+try:
+    import torch_tensorrt
+except ImportError:
+    torch_tensorrt = None
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 torch.backends.cuda.enable_flash_sdp(True)
 torch.backends.cuda.enable_math_sdp(True)
 torch.backends.cuda.enable_mem_efficient_sdp(True)
-torch_tensorrt.runtime.set_multi_device_safe_mode(True)
-torch_tensorrt.runtime.set_cudagraphs_mode(True)
+if torch_tensorrt is not None:
+    torch_tensorrt.runtime.set_multi_device_safe_mode(True)
+    torch_tensorrt.runtime.set_cudagraphs_mode(True)
 
 import collections
 import numpy as np  
 import time
+import cv2
 
-from mmdet.apis import DetInferencer
+try:
+    from mmdet.apis import DetInferencer
+except ImportError:
+    DetInferencer = None
 from ultralytics import YOLO
 from camera_models import OVR624CameraModel
 from models import HALO, LimbModel
@@ -27,10 +35,96 @@ from core import KalmanFilterCV3D, compute_camera_space_mesh, get_limb
 from settings import config as cfg
 from demo_hand_arm_loader import DemoHandArmLoader
 from demo_utils import *
-from renderer import Renderer
+try:
+    from renderer import Renderer
+except Exception as exc:
+    Renderer = None
+    RENDERER_IMPORT_ERROR = exc
+else:
+    RENDERER_IMPORT_ERROR = None
 
 
 UNDISTORT_INP = True
+
+
+def _bbox_center_xy(bbox):
+    bbox = np.asarray(bbox, dtype=np.float32)
+    return np.asarray([0.5 * (bbox[0] + bbox[2]), 0.5 * (bbox[1] + bbox[3])], dtype=np.float32)
+
+
+def _bbox_is_valid(bbox):
+    bbox = np.asarray(bbox, dtype=np.float32)
+    return bool(np.isfinite(bbox).all() and bbox[2] > bbox[0] and bbox[3] > bbox[1])
+
+
+def _smooth_record_bbox(record, prev_record, alpha):
+    record = dict(record)
+    current_bbox = np.asarray(record["bbox"], dtype=np.float32)
+    previous_bbox = np.asarray(prev_record["bbox"], dtype=np.float32)
+    record["detected_bbox"] = current_bbox.copy()
+    record["bbox"] = ((1.0 - float(alpha)) * previous_bbox + float(alpha) * current_bbox).astype(np.float32)
+    record["x_center"] = float(0.5 * (record["bbox"][0] + record["bbox"][2]))
+    return record
+
+
+def _assign_yolo_hand_candidates(hand_candidates, prev_boxes, image_width, use_temporal_assignment=True):
+    hand_candidates = [rec for rec in hand_candidates if _bbox_is_valid(rec["bbox"])]
+    if not hand_candidates:
+        return {}
+
+    selected = {}
+    prev_left = prev_boxes.get("left", {}).get("hand")
+    prev_right = prev_boxes.get("right", {}).get("hand")
+
+    if len(hand_candidates) >= 2:
+        if prev_left is not None and prev_right is not None:
+            if use_temporal_assignment:
+                left_prev_center = _bbox_center_xy(prev_left["bbox"])
+                right_prev_center = _bbox_center_xy(prev_right["bbox"])
+                best_pair = None
+                best_cost = float("inf")
+                for ldx, left_rec in enumerate(hand_candidates):
+                    for rdx, right_rec in enumerate(hand_candidates):
+                        if ldx == rdx:
+                            continue
+                        cost = float(
+                            np.linalg.norm(_bbox_center_xy(left_rec["bbox"]) - left_prev_center)
+                            + np.linalg.norm(_bbox_center_xy(right_rec["bbox"]) - right_prev_center)
+                        )
+                        if cost < best_cost:
+                            best_cost = cost
+                            best_pair = (left_rec, right_rec)
+                if best_pair is not None and best_cost < 0.75 * float(image_width):
+                    selected["left"], selected["right"] = best_pair
+
+        if not selected:
+            ordered = sorted(hand_candidates, key=lambda rec: float(rec["x_center"]))
+            left_rec, right_rec = ordered[0], ordered[-1]
+            if abs(float(right_rec["x_center"]) - float(left_rec["x_center"])) > 0.08 * float(image_width):
+                selected["left"] = left_rec
+                selected["right"] = right_rec
+
+    else:
+        rec = hand_candidates[0]
+        center = _bbox_center_xy(rec["bbox"])
+        distances = {}
+        if prev_left is not None and _bbox_is_valid(prev_left["bbox"]):
+            distances["left"] = float(np.linalg.norm(center - _bbox_center_xy(prev_left["bbox"])))
+        if prev_right is not None and _bbox_is_valid(prev_right["bbox"]):
+            distances["right"] = float(np.linalg.norm(center - _bbox_center_xy(prev_right["bbox"])))
+        if use_temporal_assignment and distances and min(distances.values()) < 0.30 * float(image_width):
+            selected[min(distances, key=distances.get)] = rec
+        else:
+            selected["left" if float(rec["x_center"]) < 0.5 * float(image_width) else "right"] = rec
+
+    output = {}
+    for side, rec in selected.items():
+        assigned = dict(rec)
+        assigned["class_handedness"] = rec.get("handedness")
+        assigned["handedness"] = side
+        assigned["source"] = "yolo-pose-temporal-screen"
+        output[side] = assigned
+    return output
 
 
 def infer(self, config, model, limb_model, left_data, right_data, device):
@@ -86,6 +180,8 @@ def infer(self, config, model, limb_model, left_data, right_data, device):
     pred_arm_kpts_2d = outputs['arm_kpts_2d'].squeeze(1).float()
     pred_hand_kpt_w = outputs['hand_kpt_w'].squeeze(1).float()
     pred_arm_kpt_w = outputs['arm_kpt_w'].squeeze(1).float()
+    pred_hand_kpt_w = pred_hand_kpt_w * visible_hand.squeeze(1).unsqueeze(-1)
+    pred_arm_kpt_w = pred_arm_kpt_w * visible_arm.squeeze(1).unsqueeze(-1)
 
     pred_arm_shape = outputs['arm_shape'].float()
     pred_arm_R = outputs['arm_R'].float()
@@ -136,6 +232,8 @@ def infer(self, config, model, limb_model, left_data, right_data, device):
     hand_crop = hand_crop.astype(np.uint8)
     arm_crop = arm_crop.astype(np.uint8)
 
+    pred_hand_j2d_direct = get_j2d_from_kpt2d(config, meta, pred_kpts_2d, pred_type='hand').cpu().numpy()
+    pred_transl = pred_transl.cpu().numpy()
     pred_j2d = self.camera_model.camera_to_uv(pred_j3d.cpu().numpy())
     pred_arm_j2d_proj = self.camera_model.camera_to_uv(pred_arm_j3d.cpu().numpy())
 
@@ -165,10 +263,14 @@ def infer(self, config, model, limb_model, left_data, right_data, device):
         'arm_crop': arm_crop,
         'pred_j3d': pred_j3d,
         'pred_j2d': pred_j2d,
+        'pred_hand_j2d_direct': pred_hand_j2d_direct,
         'pred_vertices': pred_vertices,
         'pred_arm_j3d': pred_arm_j3d,
         'pred_arm_j2d': pred_arm_j2d,
         'pred_arm_vertices': pred_arm_vertices,
+        'pred_transl': pred_transl,
+        'pred_hand_kpt_w': pred_hand_kpt_w,
+        'pred_arm_kpt_w': pred_arm_kpt_w,
     }
 
  
@@ -185,19 +287,27 @@ class Inference:
         self.kalman_filter_freq = 30.0
 
         os.environ["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = "1"
-        self.box_inferencer = DetInferencer(f'{ROOT_DIR}/demo/rtmdet_tiny_8xb32-300e_combined_cutmix.py', weights=cfg.DETECTION.HAND_ARM_PATH, device=self.device)
-        
-        det_model = self.box_inferencer.model.eval().half()
-        det_model = optimize_mmdet_model_for_inference(det_model)
+        self.box_inferencer = None
+        if DetInferencer is not None and os.path.exists(cfg.DETECTION.HAND_ARM_PATH):
+            try:
+                self.box_inferencer = DetInferencer(f'{ROOT_DIR}/demo/rtmdet_tiny_8xb32-300e_combined_cutmix.py', weights=cfg.DETECTION.HAND_ARM_PATH, device=self.device)
 
-        det_model = torch.compile(
-            det_model,
-            backend="inductor",
-            mode="max-autotune",   
-            dynamic=False,            
-            fullgraph=False
-        ).half()
-        self.box_inferencer.model = det_model
+                det_model = self.box_inferencer.model.eval().half()
+                det_model = optimize_mmdet_model_for_inference(det_model)
+
+                det_model = torch.compile(
+                    det_model,
+                    backend="inductor",
+                    mode="max-autotune",
+                    dynamic=False,
+                    fullgraph=False
+                ).half()
+                self.box_inferencer.model = det_model
+            except Exception as exc:
+                print(f"MMDetection forearm detector unavailable, continuing with hand-only detections: {exc}")
+                self.box_inferencer = None
+        else:
+            print("MMDetection forearm detector unavailable, continuing with hand-only detections.")
         self.hand_detector = YOLO(cfg.DETECTION.HAND_PATH, task="pose")
 
         self.classes = ['left_forearm', 'right_forearm', 'left_hand', 'right_hand']
@@ -225,8 +335,8 @@ class Inference:
         self.renderer = None
         self.frame_index = 0
 
-        self.stream_det  = torch.cuda.Stream()
-        self.stream_yolo = torch.cuda.Stream()
+        self.stream_det = torch.cuda.Stream() if torch.cuda.is_available() and self.box_inferencer is not None else None
+        self.stream_yolo = torch.cuda.Stream() if torch.cuda.is_available() else None
 
     def set_camera_model(self, camera_model, undistort_inp=None):
         if camera_model is None:
@@ -286,77 +396,88 @@ class Inference:
     def detect_bounding_boxes(self, rgb_image):
         t0 = time.time()
 
-        # === launch both models on separate CUDA streams ===
-        with torch.no_grad(), torch.cuda.amp.autocast(dtype=torch.float16):
-            with torch.cuda.stream(self.stream_det):
-                det_out = self.box_inferencer(rgb_image)
-            with torch.cuda.stream(self.stream_yolo):
-                yolo_res = self.hand_detector.track(
-                    rgb_image,
-                    persist=True,
-                    verbose=False,
-                    half=True,
-                    device=self.device,
-                    conf=0.25,
-                    iou=0.50,
-                )[0]
+        det_out = None
+        detector_image = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR)
+        yolo_kwargs = dict(
+            verbose=False,
+            half=self.device.type == "cuda",
+            device=self.device,
+            conf=0.25,
+            iou=0.50,
+        )
 
-        # wait for both (no global sync until the end)
-        torch.cuda.current_stream().wait_stream(self.stream_det)
-        torch.cuda.current_stream().wait_stream(self.stream_yolo)
-        torch.cuda.synchronize()
+        if self.box_inferencer is not None and self.stream_det is not None and self.stream_yolo is not None:
+            with torch.no_grad(), torch.cuda.amp.autocast(dtype=torch.float16):
+                with torch.cuda.stream(self.stream_det):
+                    det_out = self.box_inferencer(detector_image)
+                with torch.cuda.stream(self.stream_yolo):
+                    if getattr(self, "yolo_use_track", False):
+                        yolo_res = self.hand_detector.track(
+                            detector_image,
+                            persist=getattr(self, "yolo_track_persist", False),
+                            **yolo_kwargs,
+                        )[0]
+                    else:
+                        yolo_res = self.hand_detector.predict(detector_image, **yolo_kwargs)[0]
 
-        # === parse detector A (mmdeploy) ===
-        det_preds = det_out['predictions'][0]
-        labels_np   = np.asarray(det_preds['labels'],   dtype=np.int64)
-        scores_np   = np.asarray(det_preds['scores'],   dtype=np.float32)
-        bboxes_np   = np.asarray(det_preds['bboxes'],   dtype=np.float32)
-        keypoints_np= np.asarray(det_preds['keypoints'])  # dtype as given
+            torch.cuda.current_stream().wait_stream(self.stream_det)
+            torch.cuda.current_stream().wait_stream(self.stream_yolo)
+            torch.cuda.synchronize()
+        else:
+            with torch.no_grad():
+                if getattr(self, "yolo_use_track", False):
+                    yolo_res = self.hand_detector.track(
+                        detector_image,
+                        persist=getattr(self, "yolo_track_persist", False),
+                        **yolo_kwargs,
+                    )[0]
+                else:
+                    yolo_res = self.hand_detector.predict(detector_image, **yolo_kwargs)[0]
 
-        # fast string map via integer classes if available; otherwise keep your string list
-        classes = self.classes  # e.g., ["left_hand", "right_hand", "left_forearm", "right_forearm", ...]
-        # Build temp containers
         temp_left_hand, temp_left_arm = [], []
         temp_right_hand, temp_right_arm = [], []
 
-        # vectorizable bits: threshold masks by label text once
-        # (We keep a simple loop but use local refs to cut attribute lookups & Python overhead)
-        hand_thr = 0.3
-        arm_thr  = 0.3
-        for idx, (lbl_idx, score) in enumerate(zip(labels_np, scores_np)):
-            if score < 0.3:
-                continue
-            label_str = classes[int(lbl_idx)]
-            bbox      = bboxes_np[idx]
-            kpt       = keypoints_np[idx]
+        if det_out is not None:
+            # === parse detector A (mmdeploy) ===
+            det_preds = det_out['predictions'][0]
+            labels_np   = np.asarray(det_preds['labels'],   dtype=np.int64)
+            scores_np   = np.asarray(det_preds['scores'],   dtype=np.float32)
+            bboxes_np   = np.asarray(det_preds['bboxes'],   dtype=np.float32)
+            keypoints_np= np.asarray(det_preds['keypoints'])  # dtype as given
 
-            if 'hand' in label_str:
-                # hand
-                rec = {
-                    'bbox': bbox,
-                    'keypoint': kpt,
-                    'score': float(score),
-                    'x_center': float(0.5 * (bbox[0] + bbox[2])),
-                    'handedness': 'left' if 'left' in label_str else ('right' if 'right' in label_str else None),
-                }
-                if rec['handedness'] == 'left':
-                    temp_left_hand.append(rec)
-                elif rec['handedness'] == 'right':
-                    temp_right_hand.append(rec)
+            classes = self.classes
+            for idx, (lbl_idx, score) in enumerate(zip(labels_np, scores_np)):
+                if score < 0.3:
+                    continue
+                label_str = classes[int(lbl_idx)]
+                bbox      = bboxes_np[idx]
+                kpt       = keypoints_np[idx]
 
-            elif 'forearm' in label_str:
-                # arm
-                rec = {
-                    'bbox': bbox,
-                    'keypoint': kpt,
-                    'score': float(score),
-                    'x_center': float(0.5 * (bbox[0] + bbox[2])),
-                    'handedness': 'left' if 'left' in label_str else ('right' if 'right' in label_str else None),
-                }
-                if rec['handedness'] == 'left':
-                    temp_left_arm.append(rec)
-                elif rec['handedness'] == 'right':
-                    temp_right_arm.append(rec)
+                if 'hand' in label_str:
+                    rec = {
+                        'bbox': bbox,
+                        'keypoint': kpt,
+                        'score': float(score),
+                        'x_center': float(0.5 * (bbox[0] + bbox[2])),
+                        'handedness': 'left' if 'left' in label_str else ('right' if 'right' in label_str else None),
+                    }
+                    if rec['handedness'] == 'left':
+                        temp_left_hand.append(rec)
+                    elif rec['handedness'] == 'right':
+                        temp_right_hand.append(rec)
+
+                elif 'forearm' in label_str:
+                    rec = {
+                        'bbox': bbox,
+                        'keypoint': kpt,
+                        'score': float(score),
+                        'x_center': float(0.5 * (bbox[0] + bbox[2])),
+                        'handedness': 'left' if 'left' in label_str else ('right' if 'right' in label_str else None),
+                    }
+                    if rec['handedness'] == 'left':
+                        temp_left_arm.append(rec)
+                    elif rec['handedness'] == 'right':
+                        temp_right_arm.append(rec)
 
         temp = {
             'left':  {'hand': temp_left_hand,  'arm': temp_left_arm},
@@ -367,17 +488,26 @@ class Inference:
         boxes = yolo_res.boxes
         kpts  = yolo_res.keypoints
 
-        xyxy  = boxes.xyxy.cpu().numpy().astype(np.float32, copy=False) if hasattr(boxes.xyxy, "cpu") else np.asarray(boxes.xyxy, dtype=np.float32)
-        confs = boxes.conf.cpu().numpy().astype(np.float32, copy=False)  if hasattr(boxes.conf, "cpu") else np.asarray(boxes.conf, dtype=np.float32)
-        clses = boxes.cls.cpu().numpy().astype(np.int64,   copy=False)   if hasattr(boxes.cls, "cpu")  else np.asarray(boxes.cls,  dtype=np.int64)
+        if boxes is None or kpts is None or len(boxes) == 0:
+            xyxy = np.zeros((0, 4), dtype=np.float32)
+            confs = np.zeros((0,), dtype=np.float32)
+            clses = np.zeros((0,), dtype=np.int64)
+            kpxy = np.zeros((0, 3, 2), dtype=np.float32)
+            kpc = np.zeros((0, 3), dtype=np.float32)
+        else:
+            xyxy  = boxes.xyxy.cpu().numpy().astype(np.float32, copy=False) if hasattr(boxes.xyxy, "cpu") else np.asarray(boxes.xyxy, dtype=np.float32)
+            confs = boxes.conf.cpu().numpy().astype(np.float32, copy=False)  if hasattr(boxes.conf, "cpu") else np.asarray(boxes.conf, dtype=np.float32)
+            clses = boxes.cls.cpu().numpy().astype(np.int64,   copy=False)   if hasattr(boxes.cls, "cpu")  else np.asarray(boxes.cls,  dtype=np.int64)
 
-        kpxy  = kpts.xy.cpu().numpy().astype(np.float32, copy=False)     if hasattr(kpts.xy, "cpu")    else np.asarray(kpts.xy,    dtype=np.float32)
-        kpc   = kpts.conf.cpu().numpy().astype(np.float32, copy=False)    if hasattr(kpts.conf, "cpu")  else np.asarray(kpts.conf,  dtype=np.float32)
+            kpxy  = kpts.xy.cpu().numpy().astype(np.float32, copy=False)     if hasattr(kpts.xy, "cpu")    else np.asarray(kpts.xy,    dtype=np.float32)
+            kpc   = kpts.conf.cpu().numpy().astype(np.float32, copy=False)    if hasattr(kpts.conf, "cpu")  else np.asarray(kpts.conf,  dtype=np.float32)
 
         B = xyxy.shape[0]
         H, W = rgb_image.shape[:2]
 
         bounding_boxes = {'left': {}, 'right': {}}
+        prev_boxes = self.prev_boxes
+        hand_candidates = []
 
         # Fast per-detection loop (small B; keep simple)
         for b in range(B):
@@ -391,20 +521,33 @@ class Inference:
 
             # reuse your function (assumed available)
             hand_visible, hb = compute_bbox(kp_xy, W, H, type='hand')
-            # keep logic: even if not visible, hb is used (same as your code)
-            bounding_boxes[handedness]['hand'] = {
+            if not hand_visible:
+                continue
+            hand_candidates.append({
                 'bbox': hb,
+                'raw_bbox': bbox,
                 'keypoint': kp_xy,
                 'conf': kp_conf,
                 'score': conf,
                 'x_center': float(0.5 * (hb[0] + hb[2])),
                 'handedness': handedness
-            }
+            })
+
+        for side, hand_record in _assign_yolo_hand_candidates(
+            hand_candidates,
+            prev_boxes,
+            W,
+            use_temporal_assignment=getattr(self, "yolo_temporal_assignment", False),
+        ).items():
+            bounding_boxes[side]['hand'] = hand_record
 
         iou_thr = 0.0
-        prev_boxes = self.prev_boxes
         hand_stable_iou = self.hand_stable_iou
         arm_stable_iou  = self.arm_stable_iou
+        hand_bbox_ema_alpha = getattr(self, "hand_bbox_ema_alpha", 0.35)
+        arm_bbox_ema_alpha = getattr(self, "arm_bbox_ema_alpha", 0.35)
+        hand_bbox_smooth_iou = getattr(self, "hand_bbox_smooth_iou", hand_stable_iou)
+        arm_bbox_smooth_iou = getattr(self, "arm_bbox_smooth_iou", arm_stable_iou)
 
         # === choose best arm per side via vectorized IoU ===
         for side in ('left', 'right'):
@@ -431,9 +574,8 @@ class Inference:
             # stability: prefer previous arm if similar (IoU >= arm_stable_iou)
             prev_arm = prev_boxes[side].get('arm')
             if prev_arm is not None:
-                if compute_bbox_iou(best['bbox'], prev_arm['bbox']) >= arm_stable_iou:
-                    best = dict(best)  # copy so we can overwrite bbox only
-                    best['bbox'] = np.asarray(prev_arm['bbox'], dtype=np.float32).copy()
+                if compute_bbox_iou(best['bbox'], prev_arm['bbox']) >= arm_bbox_smooth_iou:
+                    best = _smooth_record_bbox(best, prev_arm, arm_bbox_ema_alpha)
 
             bounding_boxes[side]['arm'] = best
 
@@ -451,8 +593,8 @@ class Inference:
 
             cur_prev_hand_iou = compute_bbox_iou(curr_hand['bbox'], prev_hand['bbox'])
 
-            if cur_prev_hand_iou >= hand_stable_iou:
-                curr_hand['bbox'] = np.asarray(prev_hand['bbox'], dtype=np.float32).copy()
+            if cur_prev_hand_iou >= hand_bbox_smooth_iou:
+                bounding_boxes[side]['hand'] = _smooth_record_bbox(curr_hand, prev_hand, hand_bbox_ema_alpha)
 
             if ('arm' not in bounding_boxes[side]) and (prev_arm is not None):
                 if cur_prev_hand_iou >= hand_stable_iou:
@@ -493,9 +635,22 @@ class Inference:
         print('Total fps: ', 1 / (time.time() - start_time), ' time taken: (ms) ', (time.time() - start_time)*1000)
 
         c = time.time()
+        if Renderer is None:
+            if self.frame_index == 0:
+                print(f"Renderer unavailable, returning blank render views: {RENDERER_IMPORT_ERROR}")
+            self.frame_index += 1
+            blank = np.full_like(rgb_image, 30)
+            return blank, blank
+
         if self.renderer is None:
             meta = left_data[1]
-            self.renderer = Renderer(meta)
+            try:
+                self.renderer = Renderer(meta)
+            except Exception as exc:
+                print(f"Renderer initialization failed, returning blank render views: {exc}")
+                self.frame_index += 1
+                blank = np.full_like(rgb_image, 30)
+                return blank, blank
         
         render_image, tp_image = self.renderer.render(
             outs,
@@ -506,4 +661,3 @@ class Inference:
         print('Visualization fps: ', 1 / (time.time() - c), ' time taken: (ms) ', (time.time() - c)*1000)
 
         return render_image, tp_image
-

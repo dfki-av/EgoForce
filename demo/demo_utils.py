@@ -2,11 +2,15 @@ import torch
 import torch.nn as nn
 import cv2
 import numpy as np
+import os
 
 from pathlib import Path
 from functools import lru_cache
 from PIL import Image, ImageDraw, ImageFont
-from mmcv.cnn.utils.fuse_conv_bn import fuse_conv_bn
+try:
+    from mmcv.cnn.utils.fuse_conv_bn import fuse_conv_bn
+except ImportError:
+    from torch.nn.utils.fusion import fuse_conv_bn_eval as fuse_conv_bn
 
 
 def optimize_mmdet_model_for_inference(det_model: nn.Module, warmup_shape=(1, 3, 640, 640)):
@@ -116,9 +120,17 @@ def optimize_mmdet_model_for_inference(det_model: nn.Module, warmup_shape=(1, 3,
 
 def init_tracking_defaults(self):
     self.yolo_track_cfg = dict(persist=True, conf=0.25, iou=0.50, tracker='bytetrack.yaml')
+    # EgoForce is frame-level; stale detector history can freeze bad crops in long clips.
+    self.yolo_use_track = False
+    self.yolo_track_persist = False
+    self.yolo_temporal_assignment = False
     self.arm_attach_iou = 0.20     # when selecting arm from current detections (pre-fallback)
-    self.hand_stable_iou = 0.80    # 20% change threshold for fallback (IoU >= 0.8)
-    self.arm_stable_iou = 0.85     # 40% change threshold for fallback (IoU >= 0.6)
+    self.hand_stable_iou = 1.01
+    self.arm_stable_iou = 1.01
+    self.hand_bbox_ema_alpha = 0.0
+    self.arm_bbox_ema_alpha = 0.0
+    self.hand_bbox_smooth_iou = self.hand_stable_iou
+    self.arm_bbox_smooth_iou = self.arm_stable_iou
     # state for fallback
     self.prev_boxes = {'left': {'hand': None, 'arm': None},
                     'right': {'hand': None, 'arm': None}}
@@ -132,7 +144,10 @@ def compile_to_tensorrt(model, device):
     with torch.inference_mode():
         model = model.to(device).half()
         x1, x2, x3, x4 = x1.half(), x2.half(), x3.half(), x4.half()
-        model = torch.jit.trace(model, (x1, x2, x3, x4), strict=False)
+        traced_model = torch.jit.trace(model, (x1, x2, x3, x4), strict=False)
+
+    if os.environ.get("EGOFORCE_DISABLE_TRT", "").lower() in {"1", "true", "yes"}:
+        return traced_model
 
     backend_kwargs = {
         "enabled_precisions": {torch.half},
@@ -142,9 +157,13 @@ def compile_to_tensorrt(model, device):
         "use_python_runtime": False,
     }
 
-    model = torch.compile(model, backend="torch_tensorrt", options=backend_kwargs, dynamic=False,)
-    with torch.no_grad(): 
-        model(x1, x2, x3, x4) # compiled on first run
+    try:
+        model = torch.compile(traced_model, backend="torch_tensorrt", options=backend_kwargs, dynamic=False,)
+        with torch.no_grad():
+            model(x1, x2, x3, x4) # compiled on first run
+    except Exception as exc:
+        print(f"TensorRT compile unavailable, using TorchScript model: {exc}")
+        model = traced_model
 
     return model
 
