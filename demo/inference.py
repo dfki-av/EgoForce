@@ -27,6 +27,7 @@ from core import KalmanFilterCV3D, compute_camera_space_mesh, get_limb
 from settings import config as cfg
 from demo_hand_arm_loader import DemoHandArmLoader
 from demo_utils import *
+from grouped_hand_tracking import build_grouped_hand_candidates, select_grouped_hand_boxes
 from renderer import Renderer
 
 
@@ -227,6 +228,9 @@ class Inference:
 
         self.stream_det  = torch.cuda.Stream()
         self.stream_yolo = torch.cuda.Stream()
+        self.grouped_hand_track_ids = {'left': None, 'right': None}
+        self.grouped_hand_track_misses = {'left': 0, 'right': 0}
+        self.grouped_hand_track_max_misses = 2
 
     def set_camera_model(self, camera_model, undistort_inp=None):
         if camera_model is None:
@@ -276,6 +280,8 @@ class Inference:
         init_tracking_defaults(self)
         self.renderer = None
         self.frame_index = 0
+        self.grouped_hand_track_ids = {'left': None, 'right': None}
+        self.grouped_hand_track_misses = {'left': 0, 'right': 0}
 
         if self.left_kalman_filter is not None:
             self.left_kalman_filter.reset_state()
@@ -291,14 +297,15 @@ class Inference:
             with torch.cuda.stream(self.stream_det):
                 det_out = self.box_inferencer(rgb_image)
             with torch.cuda.stream(self.stream_yolo):
+                track_cfg = dict(getattr(self, 'yolo_track_cfg', {}))
+                track_cfg.update({
+                    'verbose': False,
+                    'half': True,
+                    'device': self.device,
+                })
                 yolo_res = self.hand_detector.track(
                     rgb_image,
-                    persist=True,
-                    verbose=False,
-                    half=True,
-                    device=self.device,
-                    conf=0.25,
-                    iou=0.50,
+                    **track_cfg,
                 )[0]
 
         # wait for both (no global sync until the end)
@@ -363,6 +370,10 @@ class Inference:
             'right': {'hand': temp_right_hand, 'arm': temp_right_arm},
         }
 
+        prev_boxes = self.prev_boxes
+        hand_stable_iou = self.hand_stable_iou
+        arm_stable_iou  = self.arm_stable_iou
+
         # === parse YOLO (batch all CPU copies) ===
         boxes = yolo_res.boxes
         kpts  = yolo_res.keypoints
@@ -370,41 +381,40 @@ class Inference:
         xyxy  = boxes.xyxy.cpu().numpy().astype(np.float32, copy=False) if hasattr(boxes.xyxy, "cpu") else np.asarray(boxes.xyxy, dtype=np.float32)
         confs = boxes.conf.cpu().numpy().astype(np.float32, copy=False)  if hasattr(boxes.conf, "cpu") else np.asarray(boxes.conf, dtype=np.float32)
         clses = boxes.cls.cpu().numpy().astype(np.int64,   copy=False)   if hasattr(boxes.cls, "cpu")  else np.asarray(boxes.cls,  dtype=np.int64)
+        track_ids = (
+            boxes.id.cpu().numpy().astype(np.int64, copy=False)
+            if getattr(boxes, 'id', None) is not None and hasattr(boxes.id, "cpu")
+            else (
+                np.asarray(boxes.id, dtype=np.int64)
+                if getattr(boxes, 'id', None) is not None
+                else None
+            )
+        )
 
         kpxy  = kpts.xy.cpu().numpy().astype(np.float32, copy=False)     if hasattr(kpts.xy, "cpu")    else np.asarray(kpts.xy,    dtype=np.float32)
         kpc   = kpts.conf.cpu().numpy().astype(np.float32, copy=False)    if hasattr(kpts.conf, "cpu")  else np.asarray(kpts.conf,  dtype=np.float32)
 
-        B = xyxy.shape[0]
-        H, W = rgb_image.shape[:2]
-
-        bounding_boxes = {'left': {}, 'right': {}}
-
-        # Fast per-detection loop (small B; keep simple)
-        for b in range(B):
-            bbox = xyxy[b]
-            conf = float(confs[b])
-            cls  = int(clses[b])
-            kp_xy   = kpxy[b]
-            kp_conf = kpc[b]
-
-            handedness = 'left' if cls == 0 else 'right'
-
-            # reuse your function (assumed available)
-            hand_visible, hb = compute_bbox(kp_xy, W, H, type='hand')
-            # keep logic: even if not visible, hb is used (same as your code)
-            bounding_boxes[handedness]['hand'] = {
-                'bbox': hb,
-                'keypoint': kp_xy,
-                'conf': kp_conf,
-                'score': conf,
-                'x_center': float(0.5 * (hb[0] + hb[2])),
-                'handedness': handedness
-            }
+        grouped_hand_candidates = build_grouped_hand_candidates(
+            xyxy=xyxy,
+            confs=confs,
+            clses=clses,
+            kpxy=kpxy,
+            kpc=kpc,
+            track_ids=track_ids,
+            image_shape=rgb_image.shape,
+            compute_bbox_fn=compute_bbox,
+        )
+        bounding_boxes, self.grouped_hand_track_ids, self.grouped_hand_track_misses = select_grouped_hand_boxes(
+            grouped_hand_candidates,
+            prev_boxes=prev_boxes,
+            prev_track_ids=self.grouped_hand_track_ids,
+            prev_miss_counts=self.grouped_hand_track_misses,
+            max_misses=self.grouped_hand_track_max_misses,
+            hand_stable_iou=hand_stable_iou,
+            iou_fn=compute_bbox_iou,
+        )
 
         iou_thr = 0.0
-        prev_boxes = self.prev_boxes
-        hand_stable_iou = self.hand_stable_iou
-        arm_stable_iou  = self.arm_stable_iou
 
         # === choose best arm per side via vectorized IoU ===
         for side in ('left', 'right'):
@@ -506,4 +516,3 @@ class Inference:
         print('Visualization fps: ', 1 / (time.time() - c), ' time taken: (ms) ', (time.time() - c)*1000)
 
         return render_image, tp_image
-
