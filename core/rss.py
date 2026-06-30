@@ -1,14 +1,17 @@
 import torch
 from typing import Optional, Literal
 from types import SimpleNamespace
-from camera_models.fisheye624_pytorch3d import FishEyeCamera624Pytorch3D
-from camera_models.rational8_pytorch3d import Rational8CameraPytorch3D
-from camera_models.pinhole_pytorch3d import PinholeCameraPytorch3D
-from camera_models.kannalabrandtk3_pytorch3d import KannalaBrandtK3CameraPytorch3D
-from camera_models.equisolid_pytorch3d import EquisolidCameraPytorch3D
-from camera_models.equirectangular_pytorch3d import EquirectangularCameraPytorch3D
-from camera_models.stereographic_pytorch3d import StereographicCameraPytorch3D
 
+
+def _require_pytorch3d_camera(module_name, class_name):
+    try:
+        module = __import__(module_name, fromlist=[class_name])
+    except ImportError as exc:
+        raise ImportError(
+            f"{class_name} requires PyTorch3D. Install PyTorch3D or use "
+            "pinhole camera intrinsics for the lightweight Visora path."
+        ) from exc
+    return getattr(module, class_name)
 
 
 def unproject_unit_rays(cfg, meta, j2d):
@@ -74,17 +77,26 @@ def unproject_unit_rays(cfg, meta, j2d):
 
     direction = torch.zeros(j2d.shape[0], j2d.shape[1], 3, device=device)
     if idx_pinhole.numel() > 0:
-        focal_pinhole = focal_length[idx_pinhole]
-        principal_pinhole = principal_point[idx_pinhole]
-
-        camera = PinholeCameraPytorch3D(focal_pinhole,
-                                        principal_pinhole,
-                                        image_size=image_size[idx_pinhole],
-                                        device=device)
-        dir_pinhole = camera.unproject(uv_norm[idx_pinhole])
+        uv_pinhole = uv_norm[idx_pinhole]
+        one = torch.ones(
+            *uv_pinhole.shape[:-1],
+            1,
+            device=uv_pinhole.device,
+            dtype=uv_pinhole.dtype,
+        )
+        dir_pinhole = torch.cat([uv_pinhole, one], dim=-1)
+        dir_pinhole = dir_pinhole / torch.linalg.norm(
+            dir_pinhole,
+            dim=-1,
+            keepdim=True,
+        ).clamp_min(1e-12)
         direction[idx_pinhole] = dir_pinhole
 
     if idx_rational.numel() > 0:
+        Rational8CameraPytorch3D = _require_pytorch3d_camera(
+            'camera_models.rational8_pytorch3d',
+            'Rational8CameraPytorch3D',
+        )
         focal_rational = focal_length[idx_rational]
         principal_rational = principal_point[idx_rational]
         proj_params_rational = projection_params[idx_rational][:, :8]
@@ -97,6 +109,10 @@ def unproject_unit_rays(cfg, meta, j2d):
         direction[idx_rational] = dir_rational
 
     if idx_fisheye_624.numel() > 0:
+        FishEyeCamera624Pytorch3D = _require_pytorch3d_camera(
+            'camera_models.fisheye624_pytorch3d',
+            'FishEyeCamera624Pytorch3D',
+        )
         focal_fisheye = focal_length[idx_fisheye_624]
         principal_fisheye = principal_point[idx_fisheye_624]
 
@@ -110,6 +126,10 @@ def unproject_unit_rays(cfg, meta, j2d):
         direction[idx_fisheye_624] = dir_fisheye_624
 
     if idx_fisheye_KB3.numel() > 0:
+        KannalaBrandtK3CameraPytorch3D = _require_pytorch3d_camera(
+            'camera_models.kannalabrandtk3_pytorch3d',
+            'KannalaBrandtK3CameraPytorch3D',
+        )
         focal_fisheye_kb3 = focal_length[idx_fisheye_KB3]
         principal_fisheye_kb3 = principal_point[idx_fisheye_KB3]
         
@@ -123,6 +143,10 @@ def unproject_unit_rays(cfg, meta, j2d):
         direction[idx_fisheye_KB3] = dir_fisheye_kb3
 
     if idx_equisolid.numel() > 0:
+        EquisolidCameraPytorch3D = _require_pytorch3d_camera(
+            'camera_models.equisolid_pytorch3d',
+            'EquisolidCameraPytorch3D',
+        )
         cam_equisolid = EquisolidCameraPytorch3D(
             focal_length[idx_equisolid],
             principal_point[idx_equisolid],
@@ -133,6 +157,10 @@ def unproject_unit_rays(cfg, meta, j2d):
         direction[idx_equisolid] = dir_equisolid
 
     if idx_equirectangular.numel() > 0:
+        EquirectangularCameraPytorch3D = _require_pytorch3d_camera(
+            'camera_models.equirectangular_pytorch3d',
+            'EquirectangularCameraPytorch3D',
+        )
         cam_equirectangular = EquirectangularCameraPytorch3D(
             focal_length[idx_equirectangular],
             principal_point[idx_equirectangular],
@@ -143,6 +171,10 @@ def unproject_unit_rays(cfg, meta, j2d):
         direction[idx_equirectangular] = dir_equirectangular
 
     if idx_stereographic.numel() > 0:
+        StereographicCameraPytorch3D = _require_pytorch3d_camera(
+            'camera_models.stereographic_pytorch3d',
+            'StereographicCameraPytorch3D',
+        )
         cam_stereographic = StereographicCameraPytorch3D(
             focal_length[idx_stereographic],
             principal_point[idx_stereographic],
@@ -389,7 +421,9 @@ def compute_camera_space_mesh(
     rdls_opts: Optional[dict] = None,
     refine_secondary: bool = True,
     min_visible: int = 6,
+    min_visible_arm: int = 2,
     delta_clamp: float = 0.02,            # 2 cm safety clamp for Δt
+    min_positive_z: float = 0.05,
 ):
     """Place hand & arm in camera space using robust translation solves.
 
@@ -417,7 +451,12 @@ def compute_camera_space_mesh(
     sum_hand = (w_hand > 0).float().sum(1)
     sum_arm  = (w_arm  > 0).float().sum(1)
 
-    choose_hand_first = prefer_hand | (sum_hand >= 0.25 * (sum_arm + 1e-8))
+    if isinstance(prefer_hand, bool):
+        prefer_hand_mask = torch.full_like(sum_hand, prefer_hand, dtype=torch.bool)
+    else:
+        prefer_hand_mask = prefer_hand.to(device=hand_j3d.device, dtype=torch.bool)
+
+    choose_hand_first = prefer_hand_mask | (sum_hand >= 0.25 * (sum_arm + 1e-8))
 
     B = hand_j3d.size(0)
     device, dtype = hand_j3d.device, hand_j3d.dtype
@@ -446,12 +485,24 @@ def compute_camera_space_mesh(
                 hand_dir[i], hand_j3d[i], weight=w_hand[i], **_rdls
             )
     if idx_arm_first.numel() > 0:
-        vis_ok = (sum_arm[idx_arm_first] >= min_visible)
+        vis_ok = (sum_arm[idx_arm_first] >= min_visible_arm)
         if vis_ok.any():
             i = idx_arm_first[vis_ok]
             transl[i] = solve_translation_full_ray_robust(
                 arm_dir[i], arm_j3d[i], weight=w_arm[i], **_rdls
             )
+
+    # If the hand-only primary solve lands behind or effectively on the camera
+    # plane, projection becomes numerically explosive. Use visible forearm rays
+    # as a guarded fallback; arm has only three keypoints, so it needs its own
+    # lower visibility threshold.
+    bad_depth = transl[:, 0, 2] <= min_positive_z
+    arm_fallback = bad_depth & (sum_arm >= min_visible_arm)
+    if arm_fallback.any():
+        i = arm_fallback.nonzero(as_tuple=True)[0]
+        transl[i] = solve_translation_full_ray_robust(
+            arm_dir[i], arm_j3d[i], weight=w_arm[i], **_rdls
+        )
 
     if bias is not None:
         transl = transl + bias.view(1,1,3)
@@ -464,15 +515,19 @@ def compute_camera_space_mesh(
 
     # ---------- secondary refinement (guarded) ----------
     if refine_secondary:
-        idx_secondary = idx_arm_first if idx_hand_first.numel() else idx_hand_first
-        if idx_secondary.numel() > 0:
-            # choose which limb is secondary for those batches
-            use_arm = (idx_secondary is idx_arm_first)
-            dir_sec = arm_dir if use_arm else hand_dir
-            j3d_sec = arm_j3d_w if use_arm else hand_j3d_w
-            w_sec   = w_arm if use_arm else w_hand
+        secondary_specs = (
+            (idx_hand_first, arm_dir, arm_j3d_w, w_arm, sum_arm, min_visible_arm),
+            (idx_arm_first, hand_dir, hand_j3d_w, w_hand, sum_hand, min_visible),
+        )
+        for idx_secondary, dir_sec, j3d_sec, w_sec, sum_sec, secondary_min_visible in secondary_specs:
+            if idx_secondary.numel() == 0:
+                continue
 
-            # run robust RDLS for Δt with compare_to_zero baseline
+            visible_secondary = sum_sec[idx_secondary] >= secondary_min_visible
+            if not visible_secondary.any():
+                continue
+
+            idx_secondary = idx_secondary[visible_secondary]
             t_res, loss_after, loss_base = solve_translation_full_ray_robust(
                 dir_sec[idx_secondary], j3d_sec[idx_secondary], weight=w_sec[idx_secondary],
                 compare_to_zero=True, return_loss=True,
@@ -481,23 +536,22 @@ def compute_camera_space_mesh(
                 enable_leverage=True, delta_clamp=delta_clamp,
             )
 
-            improved = (loss_after < loss_base)
+            improved = loss_after < loss_base
             if improved.any():
-                good  = idx_secondary[improved]
-                delta = t_res[improved]                           # (G,1,3)
+                good = idx_secondary[improved]
+                delta = t_res[improved]
 
-                delta_full = torch.zeros_like(transl)             # (B,1,3)
-                delta_full[good] = delta                          # writes into a fresh tensor
+                delta_full = torch.zeros_like(transl)
+                delta_full[good] = delta
 
-                transl    = transl    + delta_full
+                transl = transl + delta_full
                 hand_j3d_w = hand_j3d_w + delta_full
-                arm_j3d_w  = arm_j3d_w  + delta_full
-                hand_v_w   = hand_v_w   + delta_full
-                arm_v_w    = arm_v_w    + delta_full
+                arm_j3d_w = arm_j3d_w + delta_full
+                hand_v_w = hand_v_w + delta_full
+                arm_v_w = arm_v_w + delta_full
 
     return SimpleNamespace(
         hand=SimpleNamespace(vertices=hand_v_w, joints=hand_j3d_w),
         arm=SimpleNamespace(vertices=arm_v_w,  joints=arm_j3d_w),
         transl=transl,
     )
-
