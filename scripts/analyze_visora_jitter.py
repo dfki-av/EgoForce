@@ -240,6 +240,11 @@ def main():
         start_frame = max(0, int(camera_row.get("frame_index", round(start_time * fps))))
         inference.reset_runtime_state()
         rv.configure_detector_mode(inference, args.detector_mode)
+        if args.stride > 1:
+            inference.hand_max_center_jump_factor = float(getattr(inference, "hand_max_center_jump_factor", 0.0)) * float(args.stride)
+            missing_fallback_frames = int(getattr(inference, "hand_missing_fallback_frames", 0))
+            if missing_fallback_frames > 0:
+                inference.hand_missing_fallback_frames = max(1, int(np.ceil(missing_fallback_frames / float(args.stride))))
         inference.set_camera_model(
             rv.camera_model_from_arkit_row(camera_row),
             undistort_inp=args.egoforce_undistort_inp,
@@ -363,6 +368,7 @@ def main():
         "depth_anchor": args.depth_anchor,
         "egoforce_input_cleanup": args.egoforce_input_cleanup,
         "detector_mode": args.detector_mode,
+        "detector_temporal_stride_scale": args.stride if args.stride > 1 else 1,
         "egoforce_undistort_inp": args.egoforce_undistort_inp,
         "video_fps": fps,
         "row_fps": row_fps,

@@ -1051,6 +1051,7 @@ def draw_egoforce_hand_overlay(rgb_image, outs, bounding_boxes=None, overlay_spa
     for hdx, side in enumerate(("left", "right")):
         color = EGOFORCE_HAND_COLORS[side]
         side_boxes = {} if bounding_boxes is None else bounding_boxes.get(side, {})
+        draw_boxes = False
 
         if "hand" in side_boxes:
             weights = hand_weights[hdx] if hand_weights.ndim >= 2 and hdx < len(hand_weights) else None
@@ -1071,13 +1072,15 @@ def draw_egoforce_hand_overlay(rgb_image, outs, bounding_boxes=None, overlay_spa
                         color,
                         confidence_threshold=EGOFORCE_DRAW_CONFIDENCE_THRESHOLD,
                     )
+                    draw_boxes = True
 
-        for box_name in ("hand", "arm"):
-            record = side_boxes.get(box_name)
-            if record is None:
-                continue
-            x1, y1, x2, y2 = np.round(record["bbox"]).astype(int)
-            cv2.rectangle(overlay, (x1, y1), (x2, y2), color, 2)
+        if draw_boxes:
+            for box_name in ("hand", "arm"):
+                record = side_boxes.get(box_name)
+                if record is None:
+                    continue
+                x1, y1, x2, y2 = np.round(record["bbox"]).astype(int)
+                cv2.rectangle(overlay, (x1, y1), (x2, y2), color, 2)
 
     return cv2.addWeighted(overlay, 0.85, rgb_image, 0.15, 0)
 
