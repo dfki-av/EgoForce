@@ -124,6 +124,11 @@ def init_tracking_defaults(self):
     self.yolo_use_track = False
     self.yolo_track_persist = False
     self.yolo_temporal_assignment = False
+    self.yolo_assignment_mode = "screen"
+    self.yolo_skip_invisible_hand_bbox = True
+    self.detector_input_color = "bgr"
+    self.hand_max_center_jump_factor = 0.0
+    self.hand_missing_fallback_frames = 0
     self.arm_attach_iou = 0.20     # when selecting arm from current detections (pre-fallback)
     self.hand_stable_iou = 1.01
     self.arm_stable_iou = 1.01
@@ -134,6 +139,68 @@ def init_tracking_defaults(self):
     # state for fallback
     self.prev_boxes = {'left': {'hand': None, 'arm': None},
                     'right': {'hand': None, 'arm': None}}
+    self.missing_hand_counts = {'left': 0, 'right': 0}
+
+
+def configure_detector_mode(self, mode):
+    if mode == "current":
+        self.yolo_use_track = False
+        self.yolo_track_persist = False
+        self.yolo_temporal_assignment = False
+        self.yolo_assignment_mode = "screen"
+        self.yolo_skip_invisible_hand_bbox = True
+        self.detector_input_color = "bgr"
+        self.hand_max_center_jump_factor = 0.0
+        self.hand_missing_fallback_frames = 0
+        self.hand_stable_iou = 1.01
+        self.arm_stable_iou = 1.01
+        self.hand_bbox_ema_alpha = 0.0
+        self.arm_bbox_ema_alpha = 0.0
+    elif mode == "guarded-current":
+        self.yolo_use_track = False
+        self.yolo_track_persist = False
+        self.yolo_temporal_assignment = False
+        self.yolo_assignment_mode = "screen"
+        self.yolo_skip_invisible_hand_bbox = True
+        self.detector_input_color = "bgr"
+        self.hand_max_center_jump_factor = 0.06
+        self.hand_missing_fallback_frames = 3
+        self.hand_stable_iou = 1.01
+        self.arm_stable_iou = 1.01
+        self.hand_bbox_ema_alpha = 0.0
+        self.arm_bbox_ema_alpha = 0.0
+    elif mode == "tracked-screen":
+        self.yolo_use_track = True
+        self.yolo_track_persist = True
+        self.yolo_temporal_assignment = True
+        self.yolo_assignment_mode = "screen"
+        self.yolo_skip_invisible_hand_bbox = True
+        self.detector_input_color = "bgr"
+        self.hand_max_center_jump_factor = 0.0
+        self.hand_missing_fallback_frames = 0
+        self.hand_stable_iou = 0.80
+        self.arm_stable_iou = 0.85
+        self.hand_bbox_ema_alpha = 0.0
+        self.arm_bbox_ema_alpha = 0.0
+    elif mode == "upstream":
+        self.yolo_use_track = True
+        self.yolo_track_persist = True
+        self.yolo_temporal_assignment = False
+        self.yolo_assignment_mode = "class"
+        self.yolo_skip_invisible_hand_bbox = False
+        self.detector_input_color = "rgb"
+        self.hand_max_center_jump_factor = 0.0
+        self.hand_missing_fallback_frames = 0
+        self.hand_stable_iou = 0.80
+        self.arm_stable_iou = 0.85
+        self.hand_bbox_ema_alpha = 0.0
+        self.arm_bbox_ema_alpha = 0.0
+    else:
+        raise ValueError(f"Unknown detector mode: {mode}")
+
+    self.hand_bbox_smooth_iou = self.hand_stable_iou
+    self.arm_bbox_smooth_iou = self.arm_stable_iou
+    self.egoforce_detector_mode = mode
 
 
 

@@ -197,6 +197,7 @@ def main():
     parser.add_argument("--arkit-side-source", default="screen", choices=("screen", "chirality"))
     parser.add_argument("--depth-anchor", default="lidar", choices=("none", "lidar"))
     parser.add_argument("--egoforce-input-cleanup", default="none", choices=("none", "inpaint-markers"))
+    parser.add_argument("--detector-mode", default="guarded-current", choices=("current", "guarded-current", "tracked-screen", "upstream"))
     parser.add_argument(
         "--egoforce-undistort-inp",
         action="store_true",
@@ -238,6 +239,7 @@ def main():
         camera_row = selected_rows[0]
         start_frame = max(0, int(camera_row.get("frame_index", round(start_time * fps))))
         inference.reset_runtime_state()
+        rv.configure_detector_mode(inference, args.detector_mode)
         inference.set_camera_model(
             rv.camera_model_from_arkit_row(camera_row),
             undistort_inp=args.egoforce_undistort_inp,
@@ -360,6 +362,7 @@ def main():
         "arkit_side_source": args.arkit_side_source,
         "depth_anchor": args.depth_anchor,
         "egoforce_input_cleanup": args.egoforce_input_cleanup,
+        "detector_mode": args.detector_mode,
         "egoforce_undistort_inp": args.egoforce_undistort_inp,
         "video_fps": fps,
         "row_fps": row_fps,

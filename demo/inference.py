@@ -67,6 +67,21 @@ def _smooth_record_bbox(record, prev_record, alpha):
     return record
 
 
+def _copy_detection_record(record, source_suffix=None):
+    copied = dict(record)
+    for key in ("bbox", "raw_bbox", "keypoint", "conf"):
+        value = copied.get(key)
+        if value is not None:
+            copied[key] = np.asarray(value).copy()
+    if source_suffix is not None:
+        source = copied.get("source")
+        source_parts = str(source).split("+") if source else []
+        if source_suffix not in source_parts:
+            source_parts.append(source_suffix)
+        copied["source"] = "+".join(source_parts)
+    return copied
+
+
 def _assign_yolo_hand_candidates(hand_candidates, prev_boxes, image_width, use_temporal_assignment=True):
     hand_candidates = [rec for rec in hand_candidates if _bbox_is_valid(rec["bbox"])]
     if not hand_candidates:
@@ -398,7 +413,8 @@ class Inference:
         t0 = time.time()
 
         det_out = None
-        detector_image = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR)
+        detector_input_color = getattr(self, "detector_input_color", "bgr")
+        detector_image = rgb_image if detector_input_color == "rgb" else cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR)
         yolo_kwargs = dict(
             verbose=False,
             half=self.device.type == "cuda",
@@ -522,9 +538,9 @@ class Inference:
 
             # reuse your function (assumed available)
             hand_visible, hb = compute_bbox(kp_xy, W, H, type='hand')
-            if not hand_visible:
+            if not hand_visible and getattr(self, "yolo_skip_invisible_hand_bbox", True):
                 continue
-            hand_candidates.append({
+            hand_record = {
                 'bbox': hb,
                 'raw_bbox': bbox,
                 'keypoint': kp_xy,
@@ -532,15 +548,55 @@ class Inference:
                 'score': conf,
                 'x_center': float(0.5 * (hb[0] + hb[2])),
                 'handedness': handedness
-            })
+            }
 
-        for side, hand_record in _assign_yolo_hand_candidates(
-            hand_candidates,
-            prev_boxes,
-            W,
-            use_temporal_assignment=getattr(self, "yolo_temporal_assignment", False),
-        ).items():
-            bounding_boxes[side]['hand'] = hand_record
+            if getattr(self, "yolo_assignment_mode", "screen") == "class":
+                bounding_boxes[handedness]['hand'] = hand_record
+            else:
+                hand_candidates.append(hand_record)
+
+        if getattr(self, "yolo_assignment_mode", "screen") != "class":
+            for side, hand_record in _assign_yolo_hand_candidates(
+                hand_candidates,
+                prev_boxes,
+                W,
+                use_temporal_assignment=getattr(self, "yolo_temporal_assignment", False),
+            ).items():
+                bounding_boxes[side]['hand'] = hand_record
+
+        max_center_jump_factor = float(getattr(self, "hand_max_center_jump_factor", 0.0) or 0.0)
+        max_missing_fallback_frames = int(getattr(self, "hand_missing_fallback_frames", 0) or 0)
+        missing_hand_counts = getattr(self, "missing_hand_counts", None)
+        if missing_hand_counts is None:
+            missing_hand_counts = {'left': 0, 'right': 0}
+            self.missing_hand_counts = missing_hand_counts
+
+        for side in ('left', 'right'):
+            curr_hand = bounding_boxes[side].get('hand')
+            prev_hand = prev_boxes[side].get('hand')
+            prev_arm = prev_boxes[side].get('arm')
+
+            if curr_hand is None:
+                missing_hand_counts[side] = int(missing_hand_counts.get(side, 0)) + 1
+                if (
+                    prev_hand is not None
+                    and max_missing_fallback_frames > 0
+                    and missing_hand_counts[side] <= max_missing_fallback_frames
+                ):
+                    bounding_boxes[side]['hand'] = _copy_detection_record(prev_hand, "held-missing")
+                    if prev_arm is not None:
+                        bounding_boxes[side]['arm'] = _copy_detection_record(prev_arm, "held-missing")
+                continue
+
+            missing_hand_counts[side] = 0
+            if prev_hand is None or max_center_jump_factor <= 0:
+                continue
+
+            center_jump = float(np.linalg.norm(_bbox_center_xy(curr_hand['bbox']) - _bbox_center_xy(prev_hand['bbox'])))
+            if center_jump > max_center_jump_factor * float(W):
+                bounding_boxes[side]['hand'] = _copy_detection_record(prev_hand, "jump-guard")
+                if prev_arm is not None:
+                    bounding_boxes[side]['arm'] = _copy_detection_record(prev_arm, "jump-guard")
 
         iou_thr = 0.0
         hand_stable_iou = self.hand_stable_iou

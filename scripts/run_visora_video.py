@@ -24,7 +24,7 @@ import cv2
 import numpy as np
 
 from camera_models import PinholeCameraModel
-from demo_utils import create_square_bbox
+from demo_utils import configure_detector_mode, create_square_bbox
 
 
 MAX_STACKED_OUTPUT_WIDTH = (1080 * 3) - 2
@@ -701,7 +701,8 @@ def clean_model_input_rgb(rgb_image, bounding_boxes, cleanup_mode="none"):
 
 def yolo_screen_bounding_boxes(inference, rgb_image):
     torch, _, _, _ = ensure_egoforce_runtime()
-    detector_image = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR)
+    detector_input_color = getattr(inference, "detector_input_color", "bgr")
+    detector_image = rgb_image if detector_input_color == "rgb" else cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR)
     yolo_kwargs = dict(
         verbose=False,
         half=inference.device.type == "cuda",
@@ -989,7 +990,7 @@ def apply_lidar_depth_anchor(outs, bounding_boxes, depth, confidence, camera_mod
     return outs
 
 
-def projected_points_are_unstable(points, bbox, image_shape):
+def projected_points_are_unstable(points, bbox, image_shape, reference_points=None):
     points = np.asarray(points, dtype=np.float32)
     finite = np.isfinite(points).all(axis=1)
     if finite.sum() < 6:
@@ -1017,6 +1018,15 @@ def projected_points_are_unstable(points, bbox, image_shape):
         return True
     if np.abs(visible_points).max() > 4.0 * max(image_width, image_height):
         return True
+
+    if reference_points is not None:
+        reference_points = np.asarray(reference_points, dtype=np.float32)
+        ref_finite = np.isfinite(reference_points).all(axis=1)
+        if ref_finite.sum() >= 6:
+            reference_center = reference_points[ref_finite].mean(axis=0)
+            reference_distance = float(np.linalg.norm(point_center - reference_center))
+            if reference_distance > max(1.5 * box_diag, 160.0):
+                return True
     return False
 
 
@@ -1030,7 +1040,7 @@ def select_egoforce_overlay_points(outs, hdx, side, bounding_boxes, image_shape,
         return direct_points
 
     record = None if bounding_boxes is None else bounding_boxes.get(side, {}).get("hand")
-    if record is not None and projected_points_are_unstable(camera_points, record["bbox"], image_shape):
+    if record is not None and projected_points_are_unstable(camera_points, record["bbox"], image_shape, direct_points):
         return direct_points
     return camera_points
 
@@ -1136,6 +1146,7 @@ def process_pair(
     egoforce_overlay_space,
     egoforce_depth_anchor,
     egoforce_input_cleanup,
+    egoforce_detector_mode,
 ):
     pair_dir = Path(pair_dir)
     video_path = pair_dir / "video.mp4"
@@ -1174,6 +1185,7 @@ def process_pair(
 
         if inference is not None:
             inference.reset_runtime_state()
+            configure_detector_mode(inference, egoforce_detector_mode)
             inference.set_camera_model(camera_model_from_arkit_row(camera_row), undistort_inp=False)
             inference.set_kalman_filter_frequency(row_fps)
 
@@ -1182,7 +1194,12 @@ def process_pair(
             if viz_mode in {"egoforce-overlay", "comparison-overlay", "comparison-split"}
             else ""
         )
-        output_path = output_dir / f"{pair_dir.name}_{viz_mode.replace('-', '_')}{crop_tag}.mp4"
+        detector_tag = (
+            f"_{egoforce_detector_mode}_detector"
+            if viz_mode in {"egoforce-overlay", "comparison-overlay", "comparison-split", "render"}
+            else ""
+        )
+        output_path = output_dir / f"{pair_dir.name}_{viz_mode.replace('-', '_')}{crop_tag}{detector_tag}.mp4"
         print(
             f"{pair_dir.name}: video_fps={fps:.3f}, row_fps={row_fps:.3f}, start_time={start_time_seconds:.3f}s, "
             f"start_frame_est={start_frame}, frame_limit={len(selected_rows)}, "
@@ -1191,7 +1208,8 @@ def process_pair(
             f"viz_mode={viz_mode}, egoforce_crop_source={egoforce_crop_source}, "
             f"egoforce_arm_source={egoforce_arm_source}, "
             f"egoforce_depth_anchor={egoforce_depth_anchor}, "
-            f"egoforce_input_cleanup={egoforce_input_cleanup}",
+            f"egoforce_input_cleanup={egoforce_input_cleanup}, "
+            f"egoforce_detector_mode={egoforce_detector_mode}",
             flush=True,
         )
 
@@ -1387,6 +1405,12 @@ def parse_args():
         default="none",
         help="Preprocess the RGB passed to EgoForce crops while keeping detection/visualization on the original frame.",
     )
+    parser.add_argument(
+        "--egoforce-detector-mode",
+        choices=("current", "guarded-current", "tracked-screen", "upstream"),
+        default="guarded-current",
+        help="Detector behavior to use: current Visora-tuned parsing, guarded current parsing, tracked screen assignment, or upstream EgoForce YOLO tracking/assignment.",
+    )
     parser.add_argument("--enable-trt", action="store_true", help="Allow TensorRT compile if torch_tensorrt is installed.")
     return parser.parse_args()
 
@@ -1429,6 +1453,7 @@ def main():
                 args.egoforce_overlay_space,
                 args.egoforce_depth_anchor,
                 args.egoforce_input_cleanup,
+                args.egoforce_detector_mode,
             )
         )
 
