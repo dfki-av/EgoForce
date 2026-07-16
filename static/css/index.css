@@ -79,6 +79,14 @@ body {
    color: hsl(204, 86%, 53%) !important;
 }
 
+.publication-authors a.has-text-danger {
+  color: #ff3860 !important;
+}
+
+.demo-announcement {
+  font-size: 1.65rem !important;
+}
+
 .publication-authors a:hover {
     text-decoration: underline;
 }
